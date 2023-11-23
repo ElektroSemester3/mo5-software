@@ -7,5 +7,5 @@
 
 
 void lijnherkenning() {
-	//	Do something here
+	// Do something here
 }
