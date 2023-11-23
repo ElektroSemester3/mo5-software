@@ -22,17 +22,21 @@
 #include "snelheidBehouden.h"
 #include "motorAansturing.h"
 
+#define DEFAULT_SPEED	100
+
 int main()
 {
     init_platform();
     print("Hello World\n\r");
 
     while (1) {
+    	static u8 speedL, speedR = DEFAULT_SPEED;
     	obstakeldetectie();
     	lijnherkenning();
     	sturen();
-    	snelheidBehouden();
+    	snelheidBehouden(&speedL, &speedR);
     	motorAansturing();
+    	_test_motorAansturing(&speedL, &speedR); // --- temp ---
     }
 
     cleanup_platform();
