@@ -7,8 +7,8 @@
 
 #ifndef SRC_MOTORAANSTURING_H_
 #define SRC_MOTORAANSTURING_H_
-#include "xil_types.h"
 
+#include <stdint.h>
 
 void motorAansturing();
 

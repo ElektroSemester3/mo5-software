@@ -37,6 +37,8 @@ int main()
     	return state;
     }
 
+    init_snelheidBehouden();
+
     uint8_t speedL = DEFAULT_SPEED;
     uint8_t speedR = DEFAULT_SPEED;
     

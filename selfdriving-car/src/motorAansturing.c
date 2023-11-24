@@ -5,9 +5,8 @@
  *      Author: Tjerk
  */
 #include "motorAansturing.h"
-
-#include "xtime_l.h"
-#include "libs/timer_f.h"
+#include "xil_exception.h"
+#include "xtmrctr.h"
 #include "sleep.h"
 
 const uint32_t PWM_FREQ = 500000;
@@ -20,12 +19,41 @@ void motorAansturing() {
 // --- temp ---
 XTmrCtr timerLeft, timerRight;
 
+
+int PwmInit(XTmrCtr *TmrCtrInstancePtr, uint8_t TmrInstanceNr){
+
+	int Status = XST_SUCCESS;
+
+	Status = XTmrCtr_Initialize(TmrCtrInstancePtr, TmrInstanceNr);
+	if (Status != XST_SUCCESS) {
+		return XST_FAILURE;
+	}
+
+	/*
+	 * Perform a self-test to ensure that the hardware was built
+	 * correctly.
+	 */
+	Status = XTmrCtr_SelfTest(TmrCtrInstancePtr, TmrInstanceNr);
+	if (Status != XST_SUCCESS) {
+		return XST_FAILURE;
+	}
+	return Status;
+}
+
+void PwmConfig(XTmrCtr *TmrCtrInstancePtr, u32 Period, u32 HighTime){
+	XTmrCtr_PwmDisable(TmrCtrInstancePtr);
+
+	XTmrCtr_PwmConfigure(TmrCtrInstancePtr, Period, HighTime);
+
+	XTmrCtr_PwmEnable(TmrCtrInstancePtr);
+}
+
 int _test_init_motorAansturing(){
-	int status_L = PwmInit(&timerLeft, TMR0_DEVICE_ID);
+	int status_L = PwmInit(&timerLeft, XPAR_TMRCTR_0_DEVICE_ID);
 	if (status_L != XST_SUCCESS){
 		return XST_FAILURE;
 	}
-	int status_R = PwmInit(&timerRight, TMR1_DEVICE_ID);
+	int status_R = PwmInit(&timerRight, XPAR_TMRCTR_1_DEVICE_ID);
 	if (status_R != XST_SUCCESS){
 		return XST_FAILURE;
 	}
@@ -51,3 +79,4 @@ void _test_motorAansturing(uint8_t* speedLeft, uint8_t* speedRight) {
 		usleep(10);
 	}
 }
+
