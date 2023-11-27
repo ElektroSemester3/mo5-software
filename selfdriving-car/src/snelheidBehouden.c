@@ -14,7 +14,7 @@
 #include <stdbool.h>
 #include "xtime_l.h"
 
-#define TIME_TO_MS_DIVIDER  500000
+#define TIME_TO_NS_DIVIDER  500
 
 #define MASK_ENCODER_INPUT 0xF
 
@@ -90,11 +90,29 @@ void onInterrupt() {
 // 	xil_printf("Successfully init snelheidBehouden\r\n");
 */
 
+// time between pulses on 6v supply = 15.48ms
+// pulses per revolution = 20
+// revolutions times 6v supply = 309.6ms
+#define TIRE_LENGTH_MM  206
+#define DISTANCE_PER_PULSE  103 // tire length / pulses per revolution * 10 = VALUE / 10 = mm per pulse
+#define MAX_SPEED 686 // 686 mm/s = 2.47 km/h
+
+
 XGpio encoderInput, ledOutput;
 
-uint32_t encoderPulseTime[4] = {0};
-uint32_t old_encoderTime[4] = {0};
+XTime encoderPulseTime[4] = {0};
+XTime old_encoderTime[4] = {0};
  
+/**
+ * @brief Process the encoder input value.
+ * 
+ * This function takes the encoder input value, encoder mask, and encoder index as parameters
+ * and performs the necessary processing on the input value.
+ * 
+ * @param encoderInputValue The input value from the encoder.
+ * @param encoderMask The mask used to extract relevant bits from the input value.
+ * @param encoderIndex The index of the encoder.
+ */
 void processEncoder(uint8_t encoderInputValue, uint8_t encoderMask, uint8_t encoderIndex) {
 	// Check if the encoder has changed
 	static uint8_t oldInput = 0;
@@ -106,11 +124,15 @@ void processEncoder(uint8_t encoderInputValue, uint8_t encoderMask, uint8_t enco
 			XTime_GetTime(&now_time);
 
 			// Calculate the time between pulses
-			encoderPulseTime[encoderIndex] = now_time / TIME_TO_MS_DIVIDER - old_encoderTime[encoderIndex];
-			old_encoderTime[encoderIndex] = now_time / TIME_TO_MS_DIVIDER;
+			encoderPulseTime[encoderIndex] = now_time / TIME_TO_NS_DIVIDER - old_encoderTime[encoderIndex];
+			old_encoderTime[encoderIndex] = now_time / TIME_TO_NS_DIVIDER;
+			
+			// Calculate the speed
+			uint16_t speed = (uint32_t)(DISTANCE_PER_PULSE * 100000) / encoderPulseTime[encoderIndex];
 
 			// Print the time of the encoder
-			xil_printf("Encoder %d: %llu\r\n", encoderIndex, encoderPulseTime[encoderIndex]);
+			xil_printf("Encoder %d: %llu | speed: %d\r\n", encoderIndex, encoderPulseTime[encoderIndex] / 1000, speed);
+
 		}
 
 		// Update old output

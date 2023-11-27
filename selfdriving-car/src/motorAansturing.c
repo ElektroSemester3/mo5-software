@@ -19,6 +19,7 @@ void motorAansturing() {
 // --- temp ---
 XTmrCtr timerLeft, timerRight;
 
+#define MAX_SPEED 686 // 686 mm/s = 2.47 km/h
 
 int PwmInit(XTmrCtr *TmrCtrInstancePtr, uint8_t TmrInstanceNr){
 
@@ -62,19 +63,22 @@ int _test_init_motorAansturing(){
 }
 
 void _test_motorAansturing(uint8_t* speedLeft, uint8_t* speedRight) {
-	static uint8_t old_speedLeft = 0;
-	static uint8_t old_speedRight = 0;
+	uint8_t DC_left = (uint16_t)(255 * *speedLeft / MAX_SPEED);
+	uint8_t DC_right = (uint16_t)(255 * *speedRight / MAX_SPEED);
 
-	if (old_speedLeft != *speedLeft){
-		old_speedLeft = *speedLeft;
-		uint32_t speedTime = PWM_FREQ * *speedLeft / 255;
+	static uint8_t old_DC_Left = 0;
+	static uint8_t old_DC_Right = 0;
+
+	if (old_DC_Left != DC_left){
+		old_DC_Left = DC_left;
+		uint32_t speedTime = PWM_FREQ * DC_left / 255;
 		PwmConfig(&timerLeft, PWM_FREQ, speedTime);
 		usleep(10);
 	}
 
-	if (old_speedRight != *speedRight){
-		old_speedRight = *speedRight;
-		uint32_t speedTime = PWM_FREQ * *speedRight / 255;
+	if (old_DC_Right != DC_right){
+		old_DC_Right = DC_right;
+		uint32_t speedTime = PWM_FREQ * DC_right / 255;
 		PwmConfig(&timerRight, PWM_FREQ, speedTime);
 		usleep(10);
 	}
