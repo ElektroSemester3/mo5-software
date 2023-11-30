@@ -14,11 +14,23 @@
 #include <stdbool.h>
 #include "xtime_l.h"
 
-#define TIME_TO_NS_DIVIDER  500
+#define TIME_TO_NS_DIVIDER 325 //XPAR_CPU_CORTEXA9_0_CPU_CLK_FREQ_HZ / 2000000
+#define TIME_TO_NS(i) (i / TIME_TO_NS_DIVIDER)
 
 #define MASK_ENCODER_INPUT 0xF
 
-#define ENCODER_COUNT 4
+// time between pulses on 6v supply = 15.48ms
+// pulses per revolution = 20
+// revolutions times 6v supply = 309.6ms
+#define TIRE_LENGTH_MM  	206
+#define ENCODER_DISK_SLOTS	20
+#define MIN_PULSE_TIME		15480 // ns
+
+const uint16_t DISTANCE_PER_PULSE = TIRE_LENGTH_MM * 10 / ENCODER_DISK_SLOTS;  	// DISTANCE_PER_PULSE / 10 = mm per pulse
+const uint16_t MAX_SPEED = TIRE_LENGTH_MM * 1000000 / ENCODER_DISK_SLOTS / MIN_PULSE_TIME; // 665.37 mm/s = 2.395 km/h
+
+
+#define ENCODER_COUNT 1
 enum encoder {
 	ENCODER_1 = 0x1,
 	ENCODER_2 = 0x2,
@@ -26,10 +38,11 @@ enum encoder {
 	ENCODER_4 = 0x8,
 };
 
+#define LOOP_TIME 1000000 // 1ms
 
-void onInterrupt() {
-	xil_printf("Interrupt received\r\n");
-}
+// void onInterrupt() {
+// 	xil_printf("Interrupt received\r\n");
+// }
 
 /*
 // 	int Status;
@@ -90,13 +103,6 @@ void onInterrupt() {
 // 	xil_printf("Successfully init snelheidBehouden\r\n");
 */
 
-// time between pulses on 6v supply = 15.48ms
-// pulses per revolution = 20
-// revolutions times 6v supply = 309.6ms
-#define TIRE_LENGTH_MM  206
-#define DISTANCE_PER_PULSE  103 // tire length / pulses per revolution * 10 = VALUE / 10 = mm per pulse
-#define MAX_SPEED 686 // 686 mm/s = 2.47 km/h
-
 
 XGpio encoderInput, ledOutput;
 
@@ -124,15 +130,8 @@ void processEncoder(uint8_t encoderInputValue, uint8_t encoderMask, uint8_t enco
 			XTime_GetTime(&now_time);
 
 			// Calculate the time between pulses
-			encoderPulseTime[encoderIndex] = now_time / TIME_TO_NS_DIVIDER - old_encoderTime[encoderIndex];
-			old_encoderTime[encoderIndex] = now_time / TIME_TO_NS_DIVIDER;
-			
-			// Calculate the speed
-			uint16_t speed = (uint32_t)(DISTANCE_PER_PULSE * 100000) / encoderPulseTime[encoderIndex];
-
-			// Print the time of the encoder
-			xil_printf("Encoder %d: %llu | speed: %d\r\n", encoderIndex, encoderPulseTime[encoderIndex] / 1000, speed);
-
+			encoderPulseTime[encoderIndex] = TIME_TO_NS(now_time) - old_encoderTime[encoderIndex];
+			old_encoderTime[encoderIndex] = TIME_TO_NS(now_time);
 		}
 
 		// Update old output
@@ -151,6 +150,15 @@ void init_snelheidBehouden() {
 }
 		
 
+/**
+ * @brief Maintains the speed of the self-driving car.
+ *
+ * This function is responsible for maintaining the speed of the self-driving car.
+ * It takes in the pointers to the left and right speed variables and updates them accordingly.
+ *
+ * @param speedLeft Pointer to the left speed variable.
+ * @param speedRight Pointer to the right speed variable.
+ */
 void snelheidBehouden(uint8_t* speedLeft, uint8_t* speedRight) {
 	// Read the encoder input
 	uint8_t encoderInputValue = XGpio_DiscreteRead(&encoderInput, 1);
@@ -164,18 +172,7 @@ void snelheidBehouden(uint8_t* speedLeft, uint8_t* speedRight) {
 	// test |= ((encoderInputValue & ENCODER_2) << 1);
 	XGpio_DiscreteWrite(&ledOutput, 1, encoderInputValue);
 
-
-// --- temp ---
-	// if ((XGpio_DiscreteRead(&encoderInput, 0x1) & ENCODER_INPUT_MASK) >= 0x1  ) {
 		
-	// 	*speedLeft = 10;
-	// 	*speedRight = 10;
-	// }
-	// else {
-	// 	XGpio_DiscreteWrite(&ledOutput, 1, 0x0);
-	// 	*speedLeft = 100;
-	// 	*speedRight = 100;
-	// }
 }
 
 
