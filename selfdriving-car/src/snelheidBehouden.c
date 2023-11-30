@@ -16,6 +16,7 @@
 
 #define TIME_TO_NS_DIVIDER 325 //XPAR_CPU_CORTEXA9_0_CPU_CLK_FREQ_HZ / 2000000
 #define TIME_TO_NS(i) (i / TIME_TO_NS_DIVIDER)
+#define NS_TO_TIME(i) (i * TIME_TO_NS_DIVIDER)
 
 #define MASK_ENCODER_INPUT 0xF
 
@@ -30,7 +31,7 @@ const uint16_t DISTANCE_PER_PULSE = TIRE_LENGTH_MM * 10 / ENCODER_DISK_SLOTS;  	
 const uint16_t MAX_SPEED = TIRE_LENGTH_MM * 1000000 / ENCODER_DISK_SLOTS / MIN_PULSE_TIME; // 665.37 mm/s = 2.395 km/h
 
 
-#define ENCODER_COUNT 1
+#define ENCODER_COUNT 4
 enum encoder {
 	ENCODER_1 = 0x1,
 	ENCODER_2 = 0x2,
@@ -38,7 +39,10 @@ enum encoder {
 	ENCODER_4 = 0x8,
 };
 
-#define LOOP_TIME 1000000 // 1ms
+#define LOOP_TIME 100000 // ns
+
+const uint8_t MAX_SPEED_VALUE = 200;
+const uint8_t MIN_SPEED_VALUE = 0;
 
 // void onInterrupt() {
 // 	xil_printf("Interrupt received\r\n");
@@ -106,9 +110,6 @@ enum encoder {
 
 XGpio encoderInput, ledOutput;
 
-XTime encoderPulseTime[4] = {0};
-XTime old_encoderTime[4] = {0};
- 
 /**
  * @brief Process the encoder input value.
  * 
@@ -119,9 +120,11 @@ XTime old_encoderTime[4] = {0};
  * @param encoderMask The mask used to extract relevant bits from the input value.
  * @param encoderIndex The index of the encoder.
  */
-void processEncoder(uint8_t encoderInputValue, uint8_t encoderMask, uint8_t encoderIndex) {
-	// Check if the encoder has changed
+void processEncoder(uint8_t encoderInputValue, uint8_t encoderMask, uint8_t encoderIndex, uint16_t speed[]) {
+	static XTime encoderPulseTime[ENCODER_COUNT] = {0};
+	static XTime old_encoderTime[ENCODER_COUNT] = {0};
 	static uint8_t oldInput = 0;
+	// Check if the encoder has changed
 	if ((encoderInputValue & encoderMask) != (oldInput & encoderMask)) {
 		// Rising edge
 		if ((encoderInputValue & encoderMask) && !(oldInput & encoderMask)) {
@@ -132,6 +135,25 @@ void processEncoder(uint8_t encoderInputValue, uint8_t encoderMask, uint8_t enco
 			// Calculate the time between pulses
 			encoderPulseTime[encoderIndex] = TIME_TO_NS(now_time) - old_encoderTime[encoderIndex];
 			old_encoderTime[encoderIndex] = TIME_TO_NS(now_time);
+
+			speed[encoderIndex] = (uint32_t)(DISTANCE_PER_PULSE * 100000) / encoderPulseTime[encoderIndex];
+
+			// // Calculate the speed in mm/s
+			// uint16_t _speed = (uint32_t)(DISTANCE_PER_PULSE * 100000) / encoderPulseTime[encoderIndex];
+
+			// int16_t error = 100 - (uint32_t)((_speed * 100) / MAX_SPEED);
+
+			// if (error < -100) {
+			// 	error = -100;
+			// } else if (error > 100) {
+			// 	error = 100;
+			// }
+
+			// uint16_t newSpeed = 100 + error;
+
+			// // Print the time of the encoder
+			// xil_printf("Encoder %d: Current speed: %d | Error: %d | New speed: %d\r\n", encoderIndex, _speed, error, newSpeed);
+
 		}
 
 		// Update old output
@@ -148,6 +170,47 @@ void init_snelheidBehouden() {
 	XGpio_SetDataDirection(&encoderInput, 1, 0xF);
 	XGpio_SetDataDirection(&ledOutput, 1, 0x0);
 }
+
+/**
+ * Applies limits to a given value.
+ *
+ * This function takes a value and applies limits to it, ensuring that it does not exceed
+ * the specified minimum and maximum values.
+ *
+ * @param value The value to be limited.
+ * @param min_value The minimum allowed value.
+ * @param max_value The maximum allowed value.
+ * @return The limited value.
+ */
+int16_t applyLimits(int16_t value, int16_t min_value, int16_t max_value){
+	if (value < min_value){
+		return min_value;
+	} else if (value > max_value){
+		return max_value;
+	} else {
+		return value;
+	}
+}
+
+
+void adjustSpeed(uint8_t* setpointLeft, uint8_t* setpointRight, uint16_t speed[]) {
+	// calculate the speed over the 2 sensors
+	uint16_t averageSpeedLeft = (uint32_t)(speed[0] + speed[1]) / 2;
+	uint16_t averageSpeedRight = (uint32_t)(speed[2] + speed[3]) / 2;
+
+	// calculate the error value referd to the setpoint
+	int16_t errorLeft = *setpointLeft - (uint32_t)((averageSpeedLeft * *setpointLeft) / MAX_SPEED);
+	int16_t errorRight = *setpointRight - (uint32_t)((averageSpeedRight * *setpointRight) / MAX_SPEED);
+
+	// calculate the new speed 
+	uint16_t speedLeftNew = 100 + applyLimits(errorLeft, MIN_SPEED_VALUE - (MAX_SPEED_VALUE / 2), MAX_SPEED_VALUE / 2);
+	uint16_t speedRightNew = 100 + applyLimits(errorRight, MIN_SPEED_VALUE - (MAX_SPEED_VALUE / 2), MAX_SPEED_VALUE / 2);
+
+	*setpointLeft = speedLeftNew;
+	*setpointRight = speedRightNew;
+
+	xil_printf("Left: %d | Right: %d\r\n", speedLeftNew, speedRightNew);
+}
 		
 
 /**
@@ -162,17 +225,21 @@ void init_snelheidBehouden() {
 void snelheidBehouden(uint8_t* speedLeft, uint8_t* speedRight) {
 	// Read the encoder input
 	uint8_t encoderInputValue = XGpio_DiscreteRead(&encoderInput, 1);
+	static uint16_t speed[ENCODER_COUNT] = {0};
 	
 	// Check if the encoder has changed for each encoder and calculate the time between pulses
 	for (uint8_t i = 0; i < ENCODER_COUNT; i++) {
-		processEncoder(encoderInputValue, 1 << i, i);
+		processEncoder(encoderInputValue, 1 << i, i, speed);
 	}
 
-	// uint8_t test = 0x0;
-	// test |= ((encoderInputValue & ENCODER_2) << 1);
+	XTime time_now = 0;
+	static XTime time_old = 0;
+	XTime_GetTime(&time_now);
+	if (time_now - time_old > NS_TO_TIME(LOOP_TIME)){
+		time_old = time_now;
+		adjustSpeed(speedLeft, speedRight, speed);
+	}
+
 	XGpio_DiscreteWrite(&ledOutput, 1, encoderInputValue);
-
-		
 }
-
 
