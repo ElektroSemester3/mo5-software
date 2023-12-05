@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "*.html": "html",
+        "xil_printf.h": "c",
+        "obstakeldetectie.h": "c"
+    }
+}

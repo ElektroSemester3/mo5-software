@@ -14,12 +14,24 @@
 #include <stdbool.h>
 #include "xtime_l.h"
 
+// ##################################################
+// # Constants										#
+// ##################################################
+// --- Interrupt controller constants ---
+#define INTC_DEVICE_ID 			XPAR_PS7_SCUGIC_0_DEVICE_ID
+#define ENCODER_DEVICE_ID		XPAR_ARDUINO_ARDUINO_INTR_EN_PINS_2_3_DEVICE_ID
+#define INTC_GPIO_INTERRUPT_ID 	XPAR_FABRIC_ARDUINO_ARDUINO_INTR_EN_PINS_2_3_IP2INTC_IRPT_INTR
+#define ENCODER_INT 			XGPIO_IR_CH1_MASK
+
+// --- Time constants ---
 #define TIME_TO_NS_DIVIDER 325 //XPAR_CPU_CORTEXA9_0_CPU_CLK_FREQ_HZ / 2000000
 #define TIME_TO_NS(i) (i / TIME_TO_NS_DIVIDER)
 #define NS_TO_TIME(i) (i * TIME_TO_NS_DIVIDER)
 
+// --- Encoder constants ---
 #define MASK_ENCODER_INPUT 0xF
 
+// --- Encoder calculations ---
 // time between pulses on 6v supply = 15.48ms
 // pulses per revolution = 20
 // revolutions times 6v supply = 309.6ms
@@ -30,8 +42,9 @@
 const uint16_t DISTANCE_PER_PULSE = TIRE_LENGTH_MM * 10 / ENCODER_DISK_SLOTS;  	// DISTANCE_PER_PULSE / 10 = mm per pulse
 const uint16_t MAX_SPEED = TIRE_LENGTH_MM * 1000000 / ENCODER_DISK_SLOTS / MIN_PULSE_TIME; // 665.37 mm/s = 2.395 km/h
 
-
-#define ENCODER_COUNT 4
+// --- Encoder masks ---
+#define ENCODER_COUNT 4	// The number of encoders
+// The masks for each encoder
 enum encoder {
 	ENCODER_1 = 0x1,
 	ENCODER_2 = 0x2,
@@ -39,137 +52,95 @@ enum encoder {
 	ENCODER_4 = 0x8,
 };
 
+// --- Loop time ---
 #define LOOP_TIME 100000 // ns
 
+// --- Speed limits ---
 const uint8_t MAX_SPEED_VALUE = 200;
 const uint8_t MIN_SPEED_VALUE = 0;
 
-// void onInterrupt() {
-// 	xil_printf("Interrupt received\r\n");
-// }
+// ##################################################
+// # Global variables								#
+// ##################################################
+XGpio encoderInput; 	// The instance of the encoder input GPIO.
+XScuGic INTinstance;	// The instance of the Interrupt Controller
+XGpio ledOutput;		// The instance of the LED output GPIO.	
+uint16_t speed[ENCODER_COUNT] = {0};
 
-/*
-// 	int Status;
-// 	XGpio GPIO;
-// 	XScuGic_Config *IntcConfig;
-// 	XScuGic IntcInstance;
+// ##################################################
+// # Function declarations							#
+// ##################################################
 
-// 	IntcConfig = XScuGic_LookupConfig(XPAR_PS7_SCUGIC_0_DEVICE_ID);
-
-// 	Status = XScuGic_CfgInitialize(&IntcInstance, IntcConfig, IntcConfig->CpuBaseAddress);
-// 	if (Status != XST_SUCCESS) {
-// 		xil_printf("Error initializing interrupt controller\r\n");
-// 	}
-
-// 	// // Connect to GPIO
-// 	// Status = XGpio_Initialize(&GPIO, XPAR_GPIO_2_DEVICE_ID);
-// 	// if (Status != XST_SUCCESS) {
-// 	// 	xil_printf("Error initializing GPIO\r\n");
-// 	// }
-	
-//     // XGpio_SetDataDirection(&GPIO, 1, 0x1);
-
-// 	// loopup config for gpio
-// 	XGpio_Config *gpio_config;
-// 	gpio_config = XGpio_LookupConfig(XPAR_GPIO_0_DEVICE_ID);
-
-// 	// initialize gpio
-// 	Status = XGpio_CfgInitialize(&GPIO, gpio_config, gpio_config->BaseAddress);
-
-// 	// set direction of gpio
-// 	XGpio_SetDataDirection(&GPIO, 1, 0xF);
-
-// 	// connect gpio interrupt to handler
-// 	Xil_ExceptionRegisterHandler(XIL_EXCEPTION_ID_INT,
-// 			(Xil_ExceptionHandler)XScuGic_InterruptHandler,
-// 			&IntcInstance);
-// //	if (Status != XST_SUCCESS) {
-// //		xil_printf("Error connecting interrupt to handler\r\n");
-// //	}
-
-// 	// connect interrupt to gpio
-// 	Status = XScuGic_Connect(&IntcInstance, XPAR_GPIO_0_INTERRUPT_PRESENT,
-// 			(Xil_ExceptionHandler)onInterrupt, (void *)&GPIO);
-// 	if (Status != XST_SUCCESS) {
-// 		xil_printf("Error connecting interrupt to gpio\r\n");
-// 	}
+static void processEncoder(uint8_t encoderInputValue, uint8_t encoderMask, uint8_t encoderIndex, uint16_t speed[]);
+static void adjustSpeed(uint8_t* setpointLeft, uint8_t* setpointRight, uint16_t speed[]);
+static int16_t applyLimits(int16_t value, int16_t min_value, int16_t max_value);
+static void onInterrupt(void* baseaddr_p);
+static XStatus InterruptSystemSetup(XScuGic *XScuGicInstancePtr);
+static XStatus IntcInitFunction(u16 DeviceId, XGpio *GpioInstancePtr);
 
 
-// 	// enable interrupt
-// 	XScuGic_Enable(&IntcInstance, XPAR_FABRIC_ARDUINO_ARDUINO_INTR_EN_PINS_2_3_IP2INTC_IRPT_INTR);
+// ##################################################
+// # Function definitions							#
+// ##################################################
+/**
+ * @brief 
+ * 
+ */
+XStatus init_snelheidBehouden() {
+	XStatus status = XST_SUCCESS;
 
-// 	// enable interrupt on gpio
-// 	XGpio_InterruptEnable(&GPIO, 0xF);
-// 	XGpio_InterruptGlobalEnable(&GPIO);
+	// Initialize the encoder input
+	status = XGpio_Initialize(&encoderInput, ENCODER_DEVICE_ID);
+	if (status != XST_SUCCESS) {
+		return XST_FAILURE;
+	}
 
-// 	// enable interrupt on interrupt controller
-// 	Xil_ExceptionEnable();
-// 	xil_printf("Successfully init snelheidBehouden\r\n");
-*/
+	// Initialize the LED output
+	status = XGpio_Initialize(&ledOutput, XPAR_USER_LEDS_GPIO_DEVICE_ID);
+	if (status != XST_SUCCESS) {
+		return XST_FAILURE;
+	}
 
+	// set all interrupt direction to inputs
+	XGpio_SetDataDirection(&encoderInput, 1, 0xFF);
 
-XGpio encoderInput, ledOutput;
+	// Set all LEDs direction to outputs
+	XGpio_SetDataDirection(&ledOutput, 1, 0x0);
+
+	// Initialize interrupt controller
+	status = IntcInitFunction(INTC_DEVICE_ID, &encoderInput);
+	if (status != XST_SUCCESS) {
+		return XST_FAILURE;
+	}
+
+	return XST_SUCCESS;
+}
+
 
 /**
- * @brief Process the encoder input value.
- * 
- * This function takes the encoder input value, encoder mask, and encoder index as parameters
- * and performs the necessary processing on the input value.
- * 
- * @param encoderInputValue The input value from the encoder.
- * @param encoderMask The mask used to extract relevant bits from the input value.
- * @param encoderIndex The index of the encoder.
+ * @brief Maintains the speed of the self-driving car.
+ *
+ * This function is responsible for maintaining the speed of the self-driving car.
+ * It takes in the pointers to the left and right speed variables and updates them accordingly.
+ *
+ * @param speedLeft Pointer to the left speed variable.
+ * @param speedRight Pointer to the right speed variable.
  */
-void processEncoder(uint8_t encoderInputValue, uint8_t encoderMask, uint8_t encoderIndex, uint16_t speed[]) {
-	static XTime encoderPulseTime[ENCODER_COUNT] = {0};
-	static XTime old_encoderTime[ENCODER_COUNT] = {0};
-	static uint8_t oldInput = 0;
-	// Check if the encoder has changed
-	if ((encoderInputValue & encoderMask) != (oldInput & encoderMask)) {
-		// Rising edge
-		if ((encoderInputValue & encoderMask) && !(oldInput & encoderMask)) {
-			// Get the time
-			XTime now_time;
-			XTime_GetTime(&now_time);
-
-			// Calculate the time between pulses
-			encoderPulseTime[encoderIndex] = TIME_TO_NS(now_time) - old_encoderTime[encoderIndex];
-			old_encoderTime[encoderIndex] = TIME_TO_NS(now_time);
-
-			speed[encoderIndex] = (uint32_t)(DISTANCE_PER_PULSE * 100000) / encoderPulseTime[encoderIndex];
-
-			// // Calculate the speed in mm/s
-			// uint16_t _speed = (uint32_t)(DISTANCE_PER_PULSE * 100000) / encoderPulseTime[encoderIndex];
-
-			// int16_t error = 100 - (uint32_t)((_speed * 100) / MAX_SPEED);
-
-			// if (error < -100) {
-			// 	error = -100;
-			// } else if (error > 100) {
-			// 	error = 100;
-			// }
-
-			// uint16_t newSpeed = 100 + error;
-
-			// // Print the time of the encoder
-			// xil_printf("Encoder %d: Current speed: %d | Error: %d | New speed: %d\r\n", encoderIndex, _speed, error, newSpeed);
-
-		}
-
-		// Update old output
-		oldInput = encoderInputValue; 
-	}
-}
-
-void init_snelheidBehouden() {
-	// init gpio
-	XGpio_Initialize(&encoderInput, XPAR_ARDUINO_ARDUINO_NO_INTR_PINS_DEVICE_ID);
-	XGpio_Initialize(&ledOutput, XPAR_USER_LEDS_GPIO_DEVICE_ID);
+void snelheidBehouden(uint8_t* speedLeft, uint8_t* speedRight) {
+	// Read the encoder input
+	uint8_t encoderInputValue = XGpio_DiscreteRead(&encoderInput, 1);
 	
-	// set direction of gpio
-	XGpio_SetDataDirection(&encoderInput, 1, 0xF);
-	XGpio_SetDataDirection(&ledOutput, 1, 0x0);
+	XTime time_now = 0;
+	static XTime time_old = 0;
+	XTime_GetTime(&time_now);
+	if (time_now - time_old > NS_TO_TIME(LOOP_TIME)){
+		time_old = time_now;
+		adjustSpeed(speedLeft, speedRight, speed);
+	}
+
+	XGpio_DiscreteWrite(&ledOutput, 1, encoderInputValue);
 }
+
 
 /**
  * Applies limits to a given value.
@@ -216,35 +187,125 @@ void adjustSpeed(uint8_t* setpointLeft, uint8_t* setpointRight, uint16_t speed[]
 
 	// xil_printf("SP: %d | %d \t--\t AVG:  %d | %d \t--\t Error: %d | %d \t--\t Left: %d | Right: %d\r\n", oldSetPointLeft, oldSetPointRight, averageSpeedLeft, averageSpeedRight, errorLeft, errorRight, speedLeftNew, speedRightNew);
 }
-		
 
-/**
- * @brief Maintains the speed of the self-driving car.
- *
- * This function is responsible for maintaining the speed of the self-driving car.
- * It takes in the pointers to the left and right speed variables and updates them accordingly.
- *
- * @param speedLeft Pointer to the left speed variable.
- * @param speedRight Pointer to the right speed variable.
- */
-void snelheidBehouden(uint8_t* speedLeft, uint8_t* speedRight) {
-	// Read the encoder input
-	uint8_t encoderInputValue = XGpio_DiscreteRead(&encoderInput, 1);
-	static uint16_t speed[ENCODER_COUNT] = {0};
+
 	
-	// Check if the encoder has changed for each encoder and calculate the time between pulses
-	for (uint8_t i = 0; i < ENCODER_COUNT; i++) {
-		processEncoder(encoderInputValue, 1 << i, i, speed);
+/**
+ * @brief Callback function for interrupt handling.
+ *
+ * This function is called when an interrupt occurs. It takes a base address as a parameter.
+ * 
+ * @param baseaddr_p The base address of the interrupt.
+ */
+static void onInterrupt(void* baseaddr_p) {
+	static uint8_t oldInput = 0;
+	static XTime encoderPulseTime[ENCODER_COUNT] = {0}; 
+	static XTime old_encoderTime[ENCODER_COUNT] = {0};
+	// Disable GPIO interrupts
+	XGpio_InterruptDisable(&encoderInput, ENCODER_INT);
+
+	// Ignore additional button presses
+	if ((XGpio_InterruptGetStatus(&encoderInput) & ENCODER_INT) != ENCODER_INT) {
+		return;
 	}
 
-	XTime time_now = 0;
-	static XTime time_old = 0;
-	XTime_GetTime(&time_now);
-	if (time_now - time_old > NS_TO_TIME(LOOP_TIME)){
-		time_old = time_now;
-		adjustSpeed(speedLeft, speedRight, speed);
+	// Get the gpio input value
+	uint8_t encoderInputValue = XGpio_DiscreteRead(&encoderInput, ENCODER_INT);
+	// Check if the encoder has changed
+	uint8_t changedBit = encoderInputValue ^ oldInput;
+
+	// Get the changed bit
+	uint8_t risingEdge = (changedBit & oldInput) & changedBit;
+
+	// Check if the changed bit has a rising edge
+	if (risingEdge != 0 && changedBit != 0) {
+		// Do something when there is a rising edge
+		xil_printf("Rising edge detected: %d\r\n", changedBit);
+		// Get the time
+		XTime now_time;
+		XTime_GetTime(&now_time);
+
+		uint8_t encoderIndex = changedBit / 2;
+
+		// Calculate the time between pulses
+		encoderPulseTime[encoderIndex] = TIME_TO_NS(now_time) - old_encoderTime[encoderIndex];
+		old_encoderTime[encoderIndex] = TIME_TO_NS(now_time);
+
+		speed[encoderIndex] = (uint32_t)(DISTANCE_PER_PULSE * 100000) / encoderPulseTime[encoderIndex];
 	}
 
-	XGpio_DiscreteWrite(&ledOutput, 1, encoderInputValue);
+	// Update old output
+	oldInput = encoderInputValue; 
+
+
+	// Clear the interrupt such that it is no longer pending in the GPIO
+	(void)XGpio_InterruptClear(&encoderInput, ENCODER_INT);
+
+	// Enable GPIO interrupts
+	XGpio_InterruptEnable(&encoderInput, ENCODER_INT);
 }
 
+
+/**
+ * @brief Sets up the interrupt system for the self-driving car.
+ *
+ * This function initializes the interrupt system using the provided XScuGic instance pointer.
+ *
+ * @param XScuGicInstancePtr Pointer to the XScuGic instance.
+ * @return XStatus Returns XST_SUCCESS if the interrupt system setup is successful, else an error code.
+ */
+XStatus InterruptSystemSetup(XScuGic *XScuGicInstancePtr) {
+	// Enable interrupt
+	XGpio_InterruptEnable(&encoderInput, ENCODER_INT);
+	XGpio_InterruptGlobalEnable(&encoderInput);
+
+	// Register the interrupt handler
+	Xil_ExceptionRegisterHandler(XIL_EXCEPTION_ID_INT,
+			(Xil_ExceptionHandler)XScuGic_InterruptHandler,
+			XScuGicInstancePtr);
+
+	// Connect the interrupt controller interrupt handler to the hardware interrupt handling logic in the processor.
+	Xil_ExceptionEnable();
+
+	return XST_SUCCESS;
+}
+
+/**
+ * @brief Initializes the interrupt controller and GPIO instance.
+ *
+ * This function initializes the interrupt controller and GPIO instance
+ * for further use in the program.
+ *
+ * @param DeviceId The device ID of the interrupt controller.
+ * @param GpioInstancePtr Pointer to the GPIO instance.
+ * @return XStatus Returns the status of the initialization process.
+ */
+XStatus IntcInitFunction(u16 DeviceId, XGpio *GpioInstancePtr) {
+	XScuGic_Config *IntcConfig;
+	int status;
+
+	// Interrupt controller initialisation
+	IntcConfig = XScuGic_LookupConfig(DeviceId);
+	status = XScuGic_CfgInitialize(&INTinstance, IntcConfig, IntcConfig->CpuBaseAddress);
+	if(status != XST_SUCCESS) return XST_FAILURE;
+
+	// Call to interrupt setup
+	status = InterruptSystemSetup(&INTinstance);
+	if(status != XST_SUCCESS) return XST_FAILURE;
+
+	// Connect GPIO interrupt to handler
+	status = XScuGic_Connect(&INTinstance,
+			INTC_GPIO_INTERRUPT_ID,
+			(Xil_ExceptionHandler)onInterrupt,
+			(void *)GpioInstancePtr);
+	if(status != XST_SUCCESS) return XST_FAILURE;
+
+	// Enable GPIO interrupts interrupt
+	XGpio_InterruptEnable(GpioInstancePtr, 1);
+	XGpio_InterruptGlobalEnable(GpioInstancePtr);
+
+	// Enable GPIO and timer interrupts in the controller
+	XScuGic_Enable(&INTinstance, INTC_GPIO_INTERRUPT_ID);
+
+	return XST_SUCCESS;
+}
