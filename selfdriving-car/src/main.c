@@ -24,7 +24,7 @@
 #include "snelheidBehouden.h"
 #include "motorAansturing.h"
 
-const uint8_t DEFAULT_SPEED = 100;
+const uint8_t DEFAULT_SPEED = 50;
 
 int main()
 {
@@ -34,23 +34,25 @@ int main()
     int state = _test_init_motorAansturing();
     if (state != 0)
     {
-    	return state;
+        return state;
     }
 
     init_snelheidBehouden();
 
-    uint8_t speedL = DEFAULT_SPEED;
-    uint8_t speedR = DEFAULT_SPEED;
-    
+
+
+
     while (1) {
-    	obstakeldetectie();
-    	lijnherkenning();
-    	sturen();
-    	snelheidBehouden(&speedL, &speedR);
-    	motorAansturing();
-        
+        uint8_t speedL = DEFAULT_SPEED;
+        uint8_t speedR = DEFAULT_SPEED;
+        obstakeldetectie();
+        lijnherkenning();
+        sturen();
+        snelheidBehouden(&speedL, &speedR);
+        motorAansturing();
+
         // --- temp ---
-    	_test_motorAansturing(&speedL, &speedR); 
+        _test_motorAansturing(&speedL, &speedR);
     }
 
     cleanup_platform();

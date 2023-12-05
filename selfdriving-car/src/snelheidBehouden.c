@@ -195,21 +195,26 @@ int16_t applyLimits(int16_t value, int16_t min_value, int16_t max_value){
 
 void adjustSpeed(uint8_t* setpointLeft, uint8_t* setpointRight, uint16_t speed[]) {
 	// calculate the speed over the 2 sensors
-	uint16_t averageSpeedLeft = (uint32_t)(speed[0] + speed[1]) / 2;
-	uint16_t averageSpeedRight = (uint32_t)(speed[2] + speed[3]) / 2;
+	// uint16_t averageSpeedLeft = (uint32_t)(speed[0] + speed[1]) / 2;
+	// uint16_t averageSpeedRight = (uint32_t)(speed[2] + speed[3]) / 2;
+	uint16_t averageSpeedLeft = speed[0];
+	uint16_t averageSpeedRight = speed[2];
+
+	uint8_t oldSetPointLeft = *setpointLeft;
+	uint8_t oldSetPointRight = *setpointRight;
 
 	// calculate the error value referd to the setpoint
-	int16_t errorLeft = *setpointLeft - (uint32_t)((averageSpeedLeft * *setpointLeft) / MAX_SPEED);
-	int16_t errorRight = *setpointRight - (uint32_t)((averageSpeedRight * *setpointRight) / MAX_SPEED);
+	int16_t errorLeft = (uint32_t)((averageSpeedLeft * 100) / MAX_SPEED);
+	int16_t errorRight = (uint32_t)((averageSpeedRight * 100) / MAX_SPEED);
 
 	// calculate the new speed 
-	uint16_t speedLeftNew = 100 + applyLimits(errorLeft, MIN_SPEED_VALUE - (MAX_SPEED_VALUE / 2), MAX_SPEED_VALUE / 2);
-	uint16_t speedRightNew = 100 + applyLimits(errorRight, MIN_SPEED_VALUE - (MAX_SPEED_VALUE / 2), MAX_SPEED_VALUE / 2);
+	uint16_t speedLeftNew = *setpointLeft - applyLimits(errorLeft, MIN_SPEED_VALUE, MAX_SPEED_VALUE - *setpointLeft);
+	uint16_t speedRightNew = *setpointRight - applyLimits(errorRight, MIN_SPEED_VALUE, MAX_SPEED_VALUE - *setpointRight);
 
 	*setpointLeft = speedLeftNew;
 	*setpointRight = speedRightNew;
 
-	xil_printf("Left: %d | Right: %d\r\n", speedLeftNew, speedRightNew);
+	// xil_printf("SP: %d | %d \t--\t AVG:  %d | %d \t--\t Error: %d | %d \t--\t Left: %d | Right: %d\r\n", oldSetPointLeft, oldSetPointRight, averageSpeedLeft, averageSpeedRight, errorLeft, errorRight, speedLeftNew, speedRightNew);
 }
 		
 

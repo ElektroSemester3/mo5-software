@@ -63,22 +63,22 @@ int _test_init_motorAansturing(){
 }
 
 void _test_motorAansturing(uint8_t* speedLeft, uint8_t* speedRight) {
-	uint8_t DC_left = (uint16_t)(255 * *speedLeft / MAX_SPEED);
-	uint8_t DC_right = (uint16_t)(255 * *speedRight / MAX_SPEED);
+	uint8_t DC_left = (uint16_t)(200 * *speedLeft / MAX_SPEED);
+	uint8_t DC_right = (uint16_t)(200 * *speedRight / MAX_SPEED);
 
 	static uint8_t old_DC_Left = 0;
 	static uint8_t old_DC_Right = 0;
 
 	if (old_DC_Left != DC_left){
 		old_DC_Left = DC_left;
-		uint32_t speedTime = PWM_FREQ * DC_left / 255;
+		uint32_t speedTime = PWM_FREQ * DC_left / 200;
 		PwmConfig(&timerLeft, PWM_FREQ, speedTime);
 		usleep(10);
 	}
 
 	if (old_DC_Right != DC_right){
 		old_DC_Right = DC_right;
-		uint32_t speedTime = PWM_FREQ * DC_right / 255;
+		uint32_t speedTime = PWM_FREQ * DC_right / 200;
 		PwmConfig(&timerRight, PWM_FREQ, speedTime);
 		usleep(10);
 	}
