@@ -28,7 +28,31 @@
 #include "snelheidBehouden.h"
 #include "motorAansturing.h"
 
-const uint8_t DEFAULT_SPEED = 50;
+const uint8_t DEFAULT_SPEED = 200;
+
+#include "xgpio.h"
+
+#define BUTTON_DEVICE_ID XPAR_GPIO_2_DEVICE_ID
+#define BUTTON_CHANNEL 1
+#define BUTTON_MASK 0x1
+
+XGpio buttonGpio;
+
+int initButton() {
+    int status;
+
+    // Initialize the GPIO instance
+    status = XGpio_Initialize(&buttonGpio, BUTTON_DEVICE_ID);
+    if (status != XST_SUCCESS) {
+        printf("Error initializing button GPIO\r\n");
+        return XST_FAILURE;
+    }
+
+    // Set the GPIO channel direction to input
+    XGpio_SetDataDirection(&buttonGpio, BUTTON_CHANNEL, 0xFFFFFFFF);
+
+    return XST_SUCCESS;
+}
 
 
 int main()
@@ -38,10 +62,19 @@ int main()
     
     if (_test_init_motorAansturing() != XST_SUCCESS) return XST_FAILURE;
     if (init_snelheidBehouden() != XST_SUCCESS) return XST_FAILURE;
+    if (initButton() != XST_SUCCESS) return XST_FAILURE;
+
+   
 
     while (1) {
-        uint8_t speedL = DEFAULT_SPEED;
-        uint8_t speedR = DEFAULT_SPEED;
+
+        uint8_t speedL = 0;
+        uint8_t speedR = 0;
+        uint8_t buttons = XGpio_DiscreteRead(&buttonGpio, BUTTON_CHANNEL);
+        if (buttons & BUTTON_MASK) {
+            speedL = DEFAULT_SPEED;
+            speedR = DEFAULT_SPEED;
+        }
         obstakeldetectie();
         lijnherkenning();
         sturen();
