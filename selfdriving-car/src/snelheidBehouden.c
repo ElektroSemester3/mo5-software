@@ -31,6 +31,11 @@
 // --- Encoder constants ---
 #define MASK_ENCODER_INPUT 0xF
 
+// --- Speed limits ---
+const uint8_t MAX_MAX_SPEED_VALUE = 200;
+const uint8_t NORMAL_MAX_SPEED_VALUE = 100;
+const uint8_t MIN_SPEED_VALUE = 0;
+
 // --- Encoder calculations ---
 // time between pulses on 6v supply = 15.48ms
 // pulses per revolution = 20
@@ -43,7 +48,7 @@ const uint16_t DISTANCE_PER_PULSE = TIRE_LENGTH_MM * 10 / ENCODER_DISK_SLOTS;  	
 const uint16_t MAX_SPEED = TIRE_LENGTH_MM * 1000000 / ENCODER_DISK_SLOTS / MIN_PULSE_TIME; // 665.37 mm/s = 2.395 km/h
 
 // --- Encoder masks ---
-#define ENCODER_COUNT 4	// The number of encoders
+#define ENCODER_COUNT 2	// The number of encoders
 // The masks for each encoder
 enum encoder {
 	ENCODER_1 = 0x1,
@@ -53,11 +58,7 @@ enum encoder {
 };
 
 // --- Loop time ---
-#define LOOP_TIME 100000 // ns
-
-// --- Speed limits ---
-const uint8_t MAX_SPEED_VALUE = 200;
-const uint8_t MIN_SPEED_VALUE = 0;
+#define LOOP_TIME 1000 // ns
 
 // ##################################################
 // # Global variables								#
@@ -65,13 +66,12 @@ const uint8_t MIN_SPEED_VALUE = 0;
 XGpio encoderInput; 	// The instance of the encoder input GPIO.
 XScuGic INTinstance;	// The instance of the Interrupt Controller
 XGpio ledOutput;		// The instance of the LED output GPIO.	
-uint16_t speed[ENCODER_COUNT] = {0};
+uint16_t speed[ENCODER_COUNT] = {0};	// Speed in mm/s
 
 // ##################################################
 // # Function declarations							#
 // ##################################################
 
-static void processEncoder(uint8_t encoderInputValue, uint8_t encoderMask, uint8_t encoderIndex, uint16_t speed[]);
 static void adjustSpeed(uint8_t* setpointLeft, uint8_t* setpointRight, uint16_t speed[]);
 static int16_t applyLimits(int16_t value, int16_t min_value, int16_t max_value);
 static void onInterrupt(void* baseaddr_p);
@@ -130,13 +130,13 @@ void snelheidBehouden(uint8_t* speedLeft, uint8_t* speedRight) {
 	// Read the encoder input
 	uint8_t encoderInputValue = XGpio_DiscreteRead(&encoderInput, 1);
 	
-	XTime time_now = 0;
-	static XTime time_old = 0;
-	XTime_GetTime(&time_now);
-	if (time_now - time_old > NS_TO_TIME(LOOP_TIME)){
-		time_old = time_now;
-		adjustSpeed(speedLeft, speedRight, speed);
-	}
+	// XTime time_now = 0;
+	// static XTime time_old = 0;
+	// XTime_GetTime(&time_now);
+	// if (time_now - time_old > NS_TO_TIME(LOOP_TIME)){
+	// 	time_old = time_now;
+	// }
+	adjustSpeed(speedLeft, speedRight, speed);
 
 	XGpio_DiscreteWrite(&ledOutput, 1, encoderInputValue);
 }
@@ -165,27 +165,34 @@ int16_t applyLimits(int16_t value, int16_t min_value, int16_t max_value){
 
 
 void adjustSpeed(uint8_t* setpointLeft, uint8_t* setpointRight, uint16_t speed[]) {
-	// calculate the speed over the 2 sensors
-	// uint16_t averageSpeedLeft = (uint32_t)(speed[0] + speed[1]) / 2;
-	// uint16_t averageSpeedRight = (uint32_t)(speed[2] + speed[3]) / 2;
-	uint16_t averageSpeedLeft = speed[0];
-	uint16_t averageSpeedRight = speed[2];
 
-	uint8_t oldSetPointLeft = *setpointLeft;
-	uint8_t oldSetPointRight = *setpointRight;
+	static uint16_t speedLeftNew = 0;
+	static uint16_t speedRightNew = 0;
+	
+	XTime time_now = 0;
+	static XTime time_old = 0;
+	XTime_GetTime(&time_now);
+	if (time_now - time_old > NS_TO_TIME(LOOP_TIME)){
+		time_old = time_now;
+		// calculate the speed in %
+		uint16_t encoderSpeedLeft = (uint32_t)((speed[0] * NORMAL_MAX_SPEED_VALUE) / MAX_SPEED); // mm/s to %
+		uint16_t encoderSpeedRight = (uint32_t)((speed[1] * NORMAL_MAX_SPEED_VALUE) / MAX_SPEED); // mm/s to %
 
-	// calculate the error value referd to the setpoint
-	int16_t errorLeft = (uint32_t)((averageSpeedLeft * 100) / MAX_SPEED);
-	int16_t errorRight = (uint32_t)((averageSpeedRight * 100) / MAX_SPEED);
+		// calculate the error value referd to the setpoint
+		int16_t errorLeft = 0; 
+		int16_t errorRight = 0; 
+		if (*setpointLeft != 0) errorLeft = NORMAL_MAX_SPEED_VALUE - encoderSpeedLeft * NORMAL_MAX_SPEED_VALUE/ *setpointLeft;
+		if (*setpointRight != 0) errorRight = NORMAL_MAX_SPEED_VALUE - encoderSpeedRight * NORMAL_MAX_SPEED_VALUE/ *setpointRight;
+		// calculate the new speed 
+		speedLeftNew = applyLimits(*setpointLeft != 0 ? *setpointLeft + errorLeft : 0, MIN_SPEED_VALUE, MAX_MAX_SPEED_VALUE);
+		speedRightNew = applyLimits(*setpointRight + errorRight, MIN_SPEED_VALUE, MAX_MAX_SPEED_VALUE);
 
-	// calculate the new speed 
-	uint16_t speedLeftNew = *setpointLeft - applyLimits(errorLeft, MIN_SPEED_VALUE, MAX_SPEED_VALUE - *setpointLeft);
-	uint16_t speedRightNew = *setpointRight - applyLimits(errorRight, MIN_SPEED_VALUE, MAX_SPEED_VALUE - *setpointRight);
+		// if (*setpointRight != 0 || encoderSpeedLeft != 0 || encoderSpeedRight != 0)xil_printf("Encoder:  %d | %d \t--\t Error: %d | %d \t--\t Left: %d | Right: %d\t--\t Time: %d %ld\r\n",encoderSpeedLeft, encoderSpeedRight, errorLeft, errorRight, speedLeftNew, speedRightNew, (uint64_t)TIME_TO_NS(time_now));
+	}
 
 	*setpointLeft = speedLeftNew;
 	*setpointRight = speedRightNew;
 
-	// xil_printf("SP: %d | %d \t--\t AVG:  %d | %d \t--\t Error: %d | %d \t--\t Left: %d | Right: %d\r\n", oldSetPointLeft, oldSetPointRight, averageSpeedLeft, averageSpeedRight, errorLeft, errorRight, speedLeftNew, speedRightNew);
 }
 
 
@@ -199,7 +206,6 @@ void adjustSpeed(uint8_t* setpointLeft, uint8_t* setpointRight, uint16_t speed[]
  */
 static void onInterrupt(void* baseaddr_p) {
 	static uint8_t oldInput = 0;
-	static XTime encoderPulseTime[ENCODER_COUNT] = {0}; 
 	static XTime old_encoderTime[ENCODER_COUNT] = {0};
 	// Disable GPIO interrupts
 	XGpio_InterruptDisable(&encoderInput, ENCODER_INT);
@@ -220,7 +226,7 @@ static void onInterrupt(void* baseaddr_p) {
 	// Check if the changed bit has a rising edge
 	if (risingEdge != 0 && changedBit != 0) {
 		// Do something when there is a rising edge
-		xil_printf("Rising edge detected: %d\r\n", changedBit);
+		// xil_printf("Rising edge detected: %d\r\n", changedBit);
 		// Get the time
 		XTime now_time;
 		XTime_GetTime(&now_time);
@@ -228,10 +234,10 @@ static void onInterrupt(void* baseaddr_p) {
 		uint8_t encoderIndex = changedBit / 2;
 
 		// Calculate the time between pulses
-		encoderPulseTime[encoderIndex] = TIME_TO_NS(now_time) - old_encoderTime[encoderIndex];
+		XTime encoderPulseTime = TIME_TO_NS(now_time) - old_encoderTime[encoderIndex];
 		old_encoderTime[encoderIndex] = TIME_TO_NS(now_time);
 
-		speed[encoderIndex] = (uint32_t)(DISTANCE_PER_PULSE * 100000) / encoderPulseTime[encoderIndex];
+		speed[encoderIndex] = (uint32_t)(DISTANCE_PER_PULSE * 100000) / encoderPulseTime;
 	}
 
 	// Update old output
@@ -254,7 +260,7 @@ static void onInterrupt(void* baseaddr_p) {
  * @param XScuGicInstancePtr Pointer to the XScuGic instance.
  * @return XStatus Returns XST_SUCCESS if the interrupt system setup is successful, else an error code.
  */
-XStatus InterruptSystemSetup(XScuGic *XScuGicInstancePtr) {
+static XStatus InterruptSystemSetup(XScuGic *XScuGicInstancePtr) {
 	// Enable interrupt
 	XGpio_InterruptEnable(&encoderInput, ENCODER_INT);
 	XGpio_InterruptGlobalEnable(&encoderInput);
@@ -280,7 +286,7 @@ XStatus InterruptSystemSetup(XScuGic *XScuGicInstancePtr) {
  * @param GpioInstancePtr Pointer to the GPIO instance.
  * @return XStatus Returns the status of the initialization process.
  */
-XStatus IntcInitFunction(u16 DeviceId, XGpio *GpioInstancePtr) {
+static XStatus IntcInitFunction(u16 DeviceId, XGpio *GpioInstancePtr) {
 	XScuGic_Config *IntcConfig;
 	int status;
 

@@ -12,14 +12,16 @@
 const uint32_t PWM_FREQ = 500000;
 const uint32_t WAIT_TIME = 10000000;
 
+// --- Speed limits ---
+const uint8_t MAX_SPEED_VALUE_ = 200;
+const uint8_t MIN_SPEED_VALUE_ = 0;
+
 void motorAansturing() {
 	//	Do something here
 }
 
 // --- temp ---
 XTmrCtr timerLeft, timerRight;
-
-#define MAX_SPEED 686 // 686 mm/s = 2.47 km/h
 
 int PwmInit(XTmrCtr *TmrCtrInstancePtr, uint8_t TmrInstanceNr){
 
@@ -62,25 +64,37 @@ int _test_init_motorAansturing(){
 	return 0;
 }
 
+static uint8_t applyPWMLimits(uint8_t value){
+	if (value < MIN_SPEED_VALUE_ + 1){
+		return 1;
+	} else if (value > MAX_SPEED_VALUE_ - 1){
+		return MAX_SPEED_VALUE_ - 1;
+	} else {
+		return value;
+	}
+}
+
 void _test_motorAansturing(uint8_t* speedLeft, uint8_t* speedRight) {
-	uint8_t DC_left = (uint16_t)(200 * *speedLeft / MAX_SPEED);
-	uint8_t DC_right = (uint16_t)(200 * *speedRight / MAX_SPEED);
+	uint8_t percentage_left = applyPWMLimits(*speedLeft);
+	uint8_t percentage_right = applyPWMLimits(*speedRight);
 
-	static uint8_t old_DC_Left = 0;
-	static uint8_t old_DC_Right = 0;
+	static uint8_t old_percentage_Left = 0;
+	static uint8_t old_percentage_Right = 0;
 
-	if (old_DC_Left != DC_left){
-		old_DC_Left = DC_left;
-		uint32_t speedTime = PWM_FREQ * DC_left / 200;
+	if (old_percentage_Left != percentage_left){
+		old_percentage_Left = percentage_left;
+		uint32_t speedTime = PWM_FREQ * percentage_left / MAX_SPEED_VALUE_;
 		PwmConfig(&timerLeft, PWM_FREQ, speedTime);
 		usleep(10);
+		// xil_printf("Left: %d, time: %d\r\n", percentage_left, speedTime);
 	}
 
-	if (old_DC_Right != DC_right){
-		old_DC_Right = DC_right;
-		uint32_t speedTime = PWM_FREQ * DC_right / 200;
+	if (old_percentage_Right != percentage_right){
+		old_percentage_Right = percentage_right;
+		uint32_t speedTime = PWM_FREQ * percentage_right / MAX_SPEED_VALUE_;
 		PwmConfig(&timerRight, PWM_FREQ, speedTime);
 		usleep(10);
+		// xil_printf("Right: %d, time: %d\r\n", percentage_right, speedTime);
 	}
 }
 
