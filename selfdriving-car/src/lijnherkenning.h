@@ -8,6 +8,7 @@
 #ifndef SRC_LIJNHERKENNING_H_
 #define SRC_LIJNHERKENNING_H_
 
+void init_lijnherkenning();
 void lijnherkenning();
 
 #endif /* SRC_LIJNHERKENNING_H_ */

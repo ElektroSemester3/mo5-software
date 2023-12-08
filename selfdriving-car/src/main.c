@@ -25,7 +25,8 @@
 int main()
 {
     init_platform();
-    print("Hello World\n\r");
+    print("Hello World\r\n");
+    init_lijnherkenning();
 
     while (1) {
     	obstakeldetectie();
