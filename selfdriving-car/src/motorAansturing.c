@@ -74,9 +74,9 @@ static uint8_t applyPWMLimits(uint8_t value){
 	}
 }
 
-void _test_motorAansturing(uint8_t* speedLeft, uint8_t* speedRight) {
-	uint8_t percentage_left = applyPWMLimits(*speedLeft);
-	uint8_t percentage_right = applyPWMLimits(*speedRight);
+void _test_motorAansturing(speed_struct* speed) {
+	uint8_t percentage_left = applyPWMLimits(speed->left);
+	uint8_t percentage_right = applyPWMLimits(speed->right);
 
 	static uint8_t old_percentage_Left = 0;
 	static uint8_t old_percentage_Right = 0;

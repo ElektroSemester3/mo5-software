@@ -66,13 +66,13 @@ enum encoder {
 XGpio encoderInput; 	// The instance of the encoder input GPIO.
 XScuGic INTinstance;	// The instance of the Interrupt Controller
 XGpio ledOutput;		// The instance of the LED output GPIO.	
-uint16_t speed[ENCODER_COUNT] = {0};	// Speed in mm/s
+uint16_t speed_storage[ENCODER_COUNT] = {0};	// Speed in mm/s
 
 // ##################################################
 // # Function declarations							#
 // ##################################################
 
-static void adjustSpeed(uint8_t* setpointLeft, uint8_t* setpointRight, uint16_t speed[]);
+static void adjustSpeed(speed_struct* speed , uint16_t s_speed[]);
 static int16_t applyLimits(int16_t value, int16_t min_value, int16_t max_value);
 static void onInterrupt(void* baseaddr_p);
 static XStatus InterruptSystemSetup(XScuGic *XScuGicInstancePtr);
@@ -126,7 +126,7 @@ XStatus init_snelheidBehouden() {
  * @param speedLeft Pointer to the left speed variable.
  * @param speedRight Pointer to the right speed variable.
  */
-void snelheidBehouden(uint8_t* speedLeft, uint8_t* speedRight) {
+void snelheidBehouden(speed_struct* speed) {
 	// Read the encoder input
 	uint8_t encoderInputValue = XGpio_DiscreteRead(&encoderInput, 1);
 	
@@ -136,7 +136,7 @@ void snelheidBehouden(uint8_t* speedLeft, uint8_t* speedRight) {
 	// if (time_now - time_old > NS_TO_TIME(LOOP_TIME)){
 	// 	time_old = time_now;
 	// }
-	adjustSpeed(speedLeft, speedRight, speed);
+	adjustSpeed(speed, speed_storage);
 
 	XGpio_DiscreteWrite(&ledOutput, 1, encoderInputValue);
 }
@@ -164,7 +164,7 @@ int16_t applyLimits(int16_t value, int16_t min_value, int16_t max_value){
 }
 
 
-void adjustSpeed(uint8_t* setpointLeft, uint8_t* setpointRight, uint16_t speed[]) {
+void adjustSpeed(speed_struct* speed , uint16_t s_speed[]) {
 
 	static uint16_t speedLeftNew = 0;
 	static uint16_t speedRightNew = 0;
@@ -175,23 +175,23 @@ void adjustSpeed(uint8_t* setpointLeft, uint8_t* setpointRight, uint16_t speed[]
 	if (time_now - time_old > NS_TO_TIME(LOOP_TIME)){
 		time_old = time_now;
 		// calculate the speed in %
-		uint16_t encoderSpeedLeft = (uint32_t)((speed[0] * NORMAL_MAX_SPEED_VALUE) / MAX_SPEED); // mm/s to %
-		uint16_t encoderSpeedRight = (uint32_t)((speed[1] * NORMAL_MAX_SPEED_VALUE) / MAX_SPEED); // mm/s to %
+		uint16_t encoderSpeedLeft = (uint32_t)((s_speed[0] * NORMAL_MAX_SPEED_VALUE) / MAX_SPEED); // mm/s to %
+		uint16_t encoderSpeedRight = (uint32_t)((s_speed[1] * NORMAL_MAX_SPEED_VALUE) / MAX_SPEED); // mm/s to %
 
 		// calculate the error value referd to the setpoint
 		int16_t errorLeft = 0; 
 		int16_t errorRight = 0; 
-		if (*setpointLeft != 0) errorLeft = NORMAL_MAX_SPEED_VALUE - encoderSpeedLeft * NORMAL_MAX_SPEED_VALUE/ *setpointLeft;
-		if (*setpointRight != 0) errorRight = NORMAL_MAX_SPEED_VALUE - encoderSpeedRight * NORMAL_MAX_SPEED_VALUE/ *setpointRight;
+		if (speed->left != 0) errorLeft = NORMAL_MAX_SPEED_VALUE - encoderSpeedLeft * NORMAL_MAX_SPEED_VALUE/ speed->left;
+		if (speed->right != 0) errorRight = NORMAL_MAX_SPEED_VALUE - encoderSpeedRight * NORMAL_MAX_SPEED_VALUE/ speed->right;
 		// calculate the new speed 
-		speedLeftNew = applyLimits(*setpointLeft != 0 ? *setpointLeft + errorLeft : 0, MIN_SPEED_VALUE, MAX_MAX_SPEED_VALUE);
-		speedRightNew = applyLimits(*setpointRight + errorRight, MIN_SPEED_VALUE, MAX_MAX_SPEED_VALUE);
+		speedLeftNew = applyLimits(speed->left != 0 ? speed->left + errorLeft : 0, MIN_SPEED_VALUE, MAX_MAX_SPEED_VALUE);
+		speedRightNew = applyLimits(speed->right + errorRight, MIN_SPEED_VALUE, MAX_MAX_SPEED_VALUE);
 
 		// if (*setpointRight != 0 || encoderSpeedLeft != 0 || encoderSpeedRight != 0)xil_printf("Encoder:  %d | %d \t--\t Error: %d | %d \t--\t Left: %d | Right: %d\t--\t Time: %d %ld\r\n",encoderSpeedLeft, encoderSpeedRight, errorLeft, errorRight, speedLeftNew, speedRightNew, (uint64_t)TIME_TO_NS(time_now));
 	}
 
-	*setpointLeft = speedLeftNew;
-	*setpointRight = speedRightNew;
+	speed->left = speedLeftNew;
+	speed->right = speedRightNew;
 
 }
 
@@ -237,7 +237,7 @@ static void onInterrupt(void* baseaddr_p) {
 		XTime encoderPulseTime = TIME_TO_NS(now_time) - old_encoderTime[encoderIndex];
 		old_encoderTime[encoderIndex] = TIME_TO_NS(now_time);
 
-		speed[encoderIndex] = (uint32_t)(DISTANCE_PER_PULSE * 100000) / encoderPulseTime;
+		speed_storage[encoderIndex] = (uint32_t)(DISTANCE_PER_PULSE * 100000) / encoderPulseTime;
 	}
 
 	// Update old output

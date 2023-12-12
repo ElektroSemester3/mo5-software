@@ -21,7 +21,9 @@
 #include "xgpio.h"
 #include "xil_exception.h"
 #include "xil_printf.h"
+#include "xgpio.h"
 
+#include "defines.h"
 #include "obstakeldetectie.h"
 #include "lijnherkenning.h"
 #include "sturen.h"
@@ -30,7 +32,6 @@
 
 const uint8_t DEFAULT_SPEED = 200;
 
-#include "xgpio.h"
 
 #define BUTTON_DEVICE_ID XPAR_GPIO_2_DEVICE_ID
 #define BUTTON_CHANNEL 1
@@ -67,22 +68,21 @@ int main()
    
 
     while (1) {
-
-        uint8_t speedL = 0;
-        uint8_t speedR = 0;
+        speed_struct Speed;
+        
         uint8_t buttons = XGpio_DiscreteRead(&buttonGpio, BUTTON_CHANNEL);
         if (buttons & BUTTON_MASK) {
-            speedL = DEFAULT_SPEED;
-            speedR = DEFAULT_SPEED;
+            Speed.left = DEFAULT_SPEED;
+            Speed.right = DEFAULT_SPEED;
         }
         obstakeldetectie();
         lijnherkenning();
         sturen();
-        snelheidBehouden(&speedL, &speedR);
+        snelheidBehouden(&Speed);
         motorAansturing();
 
         // --- temp ---
-        _test_motorAansturing(&speedL, &speedR);
+        _test_motorAansturing(&Speed);
     }
 
     cleanup_platform();

@@ -10,9 +10,9 @@
 
 #include <stdint.h>
 #include "xstatus.h"
-
+#include "defines.h"
 
 XStatus init_snelheidBehouden();
-void snelheidBehouden(uint8_t* speedLeft, uint8_t* speedRight);
+void snelheidBehouden(speed_struct* Speed);
 
 #endif /* SRC_SNELHEIDBEHOUDEN_H_ */
