@@ -9,6 +9,9 @@
 #include "xtmrctr.h"
 #include "sleep.h"
 
+#define PWM_TIMER_LEFT	XPAR_MOTOR_DRIVER_AXI_TIMER_0_DEVICE_ID
+#define PWM_TIMER_RIGHT XPAR_MOTOR_DRIVER_AXI_TIMER_1_DEVICE_ID
+
 const uint32_t PWM_FREQ = 500000;
 const uint32_t WAIT_TIME = 10000000;
 
@@ -52,11 +55,11 @@ void PwmConfig(XTmrCtr *TmrCtrInstancePtr, u32 Period, u32 HighTime){
 }
 
 int _test_init_motorAansturing(){
-	int status_L = PwmInit(&timerLeft, XPAR_TMRCTR_0_DEVICE_ID);
+	int status_L = PwmInit(&timerLeft, PWM_TIMER_LEFT);
 	if (status_L != XST_SUCCESS){
 		return XST_FAILURE;
 	}
-	int status_R = PwmInit(&timerRight, XPAR_TMRCTR_1_DEVICE_ID);
+	int status_R = PwmInit(&timerRight, PWM_TIMER_RIGHT);
 	if (status_R != XST_SUCCESS){
 		return XST_FAILURE;
 	}

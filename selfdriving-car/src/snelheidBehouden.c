@@ -19,8 +19,8 @@
 // ##################################################
 // --- Interrupt controller constants ---
 #define INTC_DEVICE_ID 			XPAR_PS7_SCUGIC_0_DEVICE_ID
-#define ENCODER_DEVICE_ID		XPAR_ARDUINO_ARDUINO_INTR_EN_PINS_2_3_DEVICE_ID
-#define INTC_GPIO_INTERRUPT_ID 	XPAR_FABRIC_ARDUINO_ARDUINO_INTR_EN_PINS_2_3_IP2INTC_IRPT_INTR
+#define ENCODER_DEVICE_ID		XPAR_SPEED_SENSORS_AXI_GPIO_0_DEVICE_ID
+#define INTC_GPIO_INTERRUPT_ID 	XPAR_FABRIC_SPEED_SENSORS_AXI_GPIO_0_IP2INTC_IRPT_INTR
 #define ENCODER_INT 			XGPIO_IR_CH1_MASK
 
 // --- Time constants ---
@@ -96,7 +96,7 @@ XStatus init_snelheidBehouden() {
 	}
 
 	// Initialize the LED output
-	status = XGpio_Initialize(&ledOutput, XPAR_USER_LEDS_GPIO_DEVICE_ID);
+	status = XGpio_Initialize(&ledOutput, XPAR_USER_INTERFACE_LEDS_GPIO_DEVICE_ID);
 	if (status != XST_SUCCESS) {
 		return XST_FAILURE;
 	}

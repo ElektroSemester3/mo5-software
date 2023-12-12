@@ -33,7 +33,7 @@
 const uint8_t DEFAULT_SPEED = 200;
 
 
-#define BUTTON_DEVICE_ID XPAR_GPIO_2_DEVICE_ID
+#define BUTTON_DEVICE_ID XPAR_USER_INTERFACE_BTNS_GPIO_DEVICE_ID
 #define BUTTON_CHANNEL 1
 #define BUTTON_MASK 0x1
 
@@ -69,12 +69,17 @@ int main()
 
     while (1) {
         speed_struct Speed;
-        
         uint8_t buttons = XGpio_DiscreteRead(&buttonGpio, BUTTON_CHANNEL);
         if (buttons & BUTTON_MASK) {
             Speed.left = DEFAULT_SPEED;
             Speed.right = DEFAULT_SPEED;
         }
+        else
+        {
+            Speed.left = 0;
+            Speed.right = 0;
+        }
+
         obstakeldetectie();
         lijnherkenning();
         sturen();
