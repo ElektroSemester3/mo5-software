@@ -8,6 +8,11 @@
 #ifndef SRC_SNELHEIDBEHOUDEN_H_
 #define SRC_SNELHEIDBEHOUDEN_H_
 
-void snelheidBehouden();
+#include <stdint.h>
+#include "xstatus.h"
+#include "defines.h"
+
+XStatus init_snelheidBehouden();
+void snelheidBehouden(speed_struct* Speed);
 
 #endif /* SRC_SNELHEIDBEHOUDEN_H_ */
