@@ -2,7 +2,7 @@
  * snelheidBehouden.c
  *
  *  Created on: 23 Nov 2023
- *      Author: Tommy
+ *  Author: Tommy de Wever
  */
 
 #include "snelheidBehouden.h"
@@ -14,77 +14,34 @@
 #include <stdbool.h>
 #include "xtime_l.h"
 
-// ##################################################
-// # Constants										#
-// ##################################################
 // --- Interrupt controller constants ---
 #define INTC_DEVICE_ID 			XPAR_PS7_SCUGIC_0_DEVICE_ID
 #define ENCODER_DEVICE_ID		XPAR_SPEED_SENSORS_AXI_GPIO_0_DEVICE_ID
 #define INTC_GPIO_INTERRUPT_ID 	XPAR_FABRIC_SPEED_SENSORS_AXI_GPIO_0_IP2INTC_IRPT_INTR
 #define ENCODER_INT 			XGPIO_IR_CH1_MASK
 
-// --- Time constants ---
-#define TIME_TO_NS_DIVIDER 325 //XPAR_CPU_CORTEXA9_0_CPU_CLK_FREQ_HZ / 2000000
-#define TIME_TO_NS(i) (i / TIME_TO_NS_DIVIDER)
-#define NS_TO_TIME(i) (i * TIME_TO_NS_DIVIDER)
-
-// --- Encoder constants ---
-#define MASK_ENCODER_INPUT 0xF
-
-// --- Speed limits ---
-const uint8_t MAX_MAX_SPEED_VALUE = 200;
-const uint8_t NORMAL_MAX_SPEED_VALUE = 100;
-const uint8_t MIN_SPEED_VALUE = 0;
-
-// --- Encoder calculations ---
-// time between pulses on 6v supply = 15.48ms
-// pulses per revolution = 20
-// revolutions times 6v supply = 309.6ms
-#define TIRE_LENGTH_MM  	206
-#define ENCODER_DISK_SLOTS	20
-#define MIN_PULSE_TIME		15480 // ns
-
-const uint16_t DISTANCE_PER_PULSE = TIRE_LENGTH_MM * 10 / ENCODER_DISK_SLOTS;  	// DISTANCE_PER_PULSE / 10 = mm per pulse
-const uint16_t MAX_SPEED = TIRE_LENGTH_MM * 1000000 / ENCODER_DISK_SLOTS / MIN_PULSE_TIME; // 665.37 mm/s = 2.395 km/h
-
-// --- Encoder masks ---
-#define ENCODER_COUNT 2	// The number of encoders
-// The masks for each encoder
-enum encoder {
-	ENCODER_1 = 0x1,
-	ENCODER_2 = 0x2,
-	ENCODER_3 = 0x4,
-	ENCODER_4 = 0x8,
-};
-
-// --- Loop time ---
-#define LOOP_TIME 1000 // ns
-
-// ##################################################
-// # Global variables								#
-// ##################################################
+// --- Global variables ---
 XGpio encoderInput; 	// The instance of the encoder input GPIO.
 XScuGic INTinstance;	// The instance of the Interrupt Controller
 XGpio ledOutput;		// The instance of the LED output GPIO.	
 uint16_t speed_storage[ENCODER_COUNT] = {0};	// Speed in mm/s
 
-// ##################################################
-// # Function declarations							#
-// ##################################################
-
+// --- Function declarations ---
 static void adjustSpeed(speed_struct* speed , uint16_t s_speed[]);
 static int16_t applyLimits(int16_t value, int16_t min_value, int16_t max_value);
 static void onInterrupt(void* baseaddr_p);
 static XStatus InterruptSystemSetup(XScuGic *XScuGicInstancePtr);
 static XStatus IntcInitFunction(u16 DeviceId, XGpio *GpioInstancePtr);
 
-
-// ##################################################
-// # Function definitions							#
-// ##################################################
 /**
- * @brief 
+ * @brief Initializes the "snelheidBehouden" module.
  * 
+ * This function is responsible for initializing the necessary resources and variables
+ * required for the "snelheidBehouden" module to function properly.
+ * 
+ * @return XStatus Returns the status of the initialization process.
+ *         - XST_SUCCESS if the initialization is successful.
+ *         - XST_FAILURE if the initialization fails.
  */
 XStatus init_snelheidBehouden() {
 	XStatus status = XST_SUCCESS;
@@ -95,17 +52,8 @@ XStatus init_snelheidBehouden() {
 		return XST_FAILURE;
 	}
 
-	// Initialize the LED output
-	status = XGpio_Initialize(&ledOutput, XPAR_USER_INTERFACE_LEDS_GPIO_DEVICE_ID);
-	if (status != XST_SUCCESS) {
-		return XST_FAILURE;
-	}
-
 	// set all interrupt direction to inputs
 	XGpio_SetDataDirection(&encoderInput, 1, 0xFF);
-
-	// Set all LEDs direction to outputs
-	XGpio_SetDataDirection(&ledOutput, 1, 0x0);
 
 	// Initialize interrupt controller
 	status = IntcInitFunction(INTC_DEVICE_ID, &encoderInput);
@@ -113,9 +61,9 @@ XStatus init_snelheidBehouden() {
 		return XST_FAILURE;
 	}
 
+	// success
 	return XST_SUCCESS;
 }
-
 
 /**
  * @brief Maintains the speed of the self-driving car.
@@ -123,24 +71,12 @@ XStatus init_snelheidBehouden() {
  * This function is responsible for maintaining the speed of the self-driving car.
  * It takes in the pointers to the left and right speed variables and updates them accordingly.
  *
- * @param speedLeft Pointer to the left speed variable.
- * @param speedRight Pointer to the right speed variable.
+ * @param speed The speed struct containing the speed values for the left and right motor.
  */
 void snelheidBehouden(speed_struct* speed) {
-	// Read the encoder input
-	uint8_t encoderInputValue = XGpio_DiscreteRead(&encoderInput, 1);
-	
-	// XTime time_now = 0;
-	// static XTime time_old = 0;
-	// XTime_GetTime(&time_now);
-	// if (time_now - time_old > NS_TO_TIME(LOOP_TIME)){
-	// 	time_old = time_now;
-	// }
+	// Adjust the speed
 	adjustSpeed(speed, speed_storage);
-
-	XGpio_DiscreteWrite(&ledOutput, 1, encoderInputValue);
 }
-
 
 /**
  * Applies limits to a given value.
@@ -154,25 +90,25 @@ void snelheidBehouden(speed_struct* speed) {
  * @return The limited value.
  */
 int16_t applyLimits(int16_t value, int16_t min_value, int16_t max_value){
-	if (value < min_value){
+	if (value < min_value){	// Check if the value is below the minimum
 		return min_value;
-	} else if (value > max_value){
+	} else if (value > max_value){	// Check if the value is above the maximum
 		return max_value;
 	} else {
-		return value;
+		return value;	// Return the value if it is within the limits
 	}
 }
 
-
 void adjustSpeed(speed_struct* speed , uint16_t s_speed[]) {
-
+	// old speed storage
 	static uint16_t speedLeftNew = 0;
 	static uint16_t speedRightNew = 0;
 	
+	// create a timer to adjust the speed in a certain time
 	XTime time_now = 0;
 	static XTime time_old = 0;
 	XTime_GetTime(&time_now);
-	if (time_now - time_old > NS_TO_TIME(LOOP_TIME)){
+	if (time_now - time_old > NS_TO_TIME(SPEED_CALC_LOOP_TIME)){
 		time_old = time_now;
 		// calculate the speed in %
 		uint16_t encoderSpeedLeft = (uint32_t)((s_speed[0] * NORMAL_MAX_SPEED_VALUE) / MAX_SPEED); // mm/s to %
@@ -181,8 +117,10 @@ void adjustSpeed(speed_struct* speed , uint16_t s_speed[]) {
 		// calculate the error value referd to the setpoint
 		int16_t errorLeft = 0; 
 		int16_t errorRight = 0; 
+		// only calculate the error if the setpoint is not 0
 		if (speed->left != 0) errorLeft = NORMAL_MAX_SPEED_VALUE - encoderSpeedLeft * NORMAL_MAX_SPEED_VALUE/ speed->left;
 		if (speed->right != 0) errorRight = NORMAL_MAX_SPEED_VALUE - encoderSpeedRight * NORMAL_MAX_SPEED_VALUE/ speed->right;
+
 		// calculate the new speed 
 		speedLeftNew = applyLimits(speed->left != 0 ? speed->left + errorLeft : 0, MIN_SPEED_VALUE, MAX_MAX_SPEED_VALUE);
 		speedRightNew = applyLimits(speed->right + errorRight, MIN_SPEED_VALUE, MAX_MAX_SPEED_VALUE);
@@ -190,12 +128,10 @@ void adjustSpeed(speed_struct* speed , uint16_t s_speed[]) {
 		// if (*setpointRight != 0 || encoderSpeedLeft != 0 || encoderSpeedRight != 0)xil_printf("Encoder:  %d | %d \t--\t Error: %d | %d \t--\t Left: %d | Right: %d\t--\t Time: %d %ld\r\n",encoderSpeedLeft, encoderSpeedRight, errorLeft, errorRight, speedLeftNew, speedRightNew, (uint64_t)TIME_TO_NS(time_now));
 	}
 
+	// set the new speed based on the stored value
 	speed->left = speedLeftNew;
 	speed->right = speedRightNew;
-
 }
-
-
 	
 /**
  * @brief Callback function for interrupt handling.
@@ -217,6 +153,7 @@ static void onInterrupt(void* baseaddr_p) {
 
 	// Get the gpio input value
 	uint8_t encoderInputValue = XGpio_DiscreteRead(&encoderInput, ENCODER_INT);
+
 	// Check if the encoder has changed
 	uint8_t changedBit = encoderInputValue ^ oldInput;
 
@@ -227,16 +164,19 @@ static void onInterrupt(void* baseaddr_p) {
 	if (risingEdge != 0 && changedBit != 0) {
 		// Do something when there is a rising edge
 		// xil_printf("Rising edge detected: %d\r\n", changedBit);
+
 		// Get the time
 		XTime now_time;
 		XTime_GetTime(&now_time);
 
+		// Get the encoder index
 		uint8_t encoderIndex = changedBit / 2;
 
 		// Calculate the time between pulses
 		XTime encoderPulseTime = TIME_TO_NS(now_time) - old_encoderTime[encoderIndex];
 		old_encoderTime[encoderIndex] = TIME_TO_NS(now_time);
 
+		// Calculate the speed
 		speed_storage[encoderIndex] = (uint32_t)(DISTANCE_PER_PULSE * 100000) / encoderPulseTime;
 	}
 
@@ -250,7 +190,6 @@ static void onInterrupt(void* baseaddr_p) {
 	// Enable GPIO interrupts
 	XGpio_InterruptEnable(&encoderInput, ENCODER_INT);
 }
-
 
 /**
  * @brief Sets up the interrupt system for the self-driving car.
@@ -273,6 +212,7 @@ static XStatus InterruptSystemSetup(XScuGic *XScuGicInstancePtr) {
 	// Connect the interrupt controller interrupt handler to the hardware interrupt handling logic in the processor.
 	Xil_ExceptionEnable();
 
+	// success
 	return XST_SUCCESS;
 }
 
@@ -313,5 +253,6 @@ static XStatus IntcInitFunction(u16 DeviceId, XGpio *GpioInstancePtr) {
 	// Enable GPIO and timer interrupts in the controller
 	XScuGic_Enable(&INTinstance, INTC_GPIO_INTERRUPT_ID);
 
+	// success
 	return XST_SUCCESS;
 }
