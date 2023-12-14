@@ -8,6 +8,7 @@
 #ifndef SRC_OBSTAKELDETECTIE_H_
 #define SRC_OBSTAKELDETECTIE_H_
 
+int obstakeldetectieInit();
 void obstakeldetectie();
 
 #endif /* SRC_OBSTAKELDETECTIE_H_ */

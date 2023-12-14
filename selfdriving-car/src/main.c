@@ -22,10 +22,25 @@
 #include "snelheidBehouden.h"
 #include "motorAansturing.h"
 
+#include "xgpio.h"
+#include "xparameters.h"
+
 int main()
 {
     init_platform();
     print("Hello World\n\r");
+
+    XGpio btns;
+    XGpio_Initialize(&btns, XPAR_USER_INTERFACE_BTNS_GPIO_DEVICE_ID);
+    XGpio_SetDataDirection(&btns, 1, 0xF);
+
+    while (XGpio_DiscreteRead(&btns, 1) == 0) {
+    	// Wait
+    }
+
+    print("Starting...\n\r");
+
+    obstakeldetectieInit();
 
     while (1) {
     	obstakeldetectie();
