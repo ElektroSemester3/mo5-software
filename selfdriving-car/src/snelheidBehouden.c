@@ -141,10 +141,10 @@ void adjustSpeed(globalData* Data, uint16_t s_speed[]) {
 		if (Data->speedRight != 0) errorRight = NORMAL_MAX_SPEED_VALUE - encoderSpeedRight * NORMAL_MAX_SPEED_VALUE/ Data->speedRight;
 
 		// calculate the new speed 
-		speedLeftNew = applyLimits(Data->speedLeft != 0 ? Data->speedLeft + errorLeft : 0, MIN_SPEED_VALUE, MAX_MAX_SPEED_VALUE);
-		speedRightNew = applyLimits(Data->speedRight + errorRight, MIN_SPEED_VALUE, MAX_MAX_SPEED_VALUE);
-		// speedLeftNew = pid_calculate(&PID_left, errorLeft, Data->speedLeft);
-		// speedRightNew = pid_calculate(&PID_right, errorRight, Data->speedRight);
+//		speedLeftNew = applyLimits(Data->speedLeft != 0 ? Data->speedLeft + errorLeft : 0, MIN_SPEED_VALUE, MAX_MAX_SPEED_VALUE);
+//		speedRightNew = applyLimits(Data->speedRight + errorRight, MIN_SPEED_VALUE, MAX_MAX_SPEED_VALUE);
+		speedLeftNew = pid_calculate(&PID_left, errorLeft, Data->speedLeft);
+		speedRightNew = pid_calculate(&PID_right, errorRight, Data->speedRight);
 
 		if (Data->speedLeft != 0 || Data->speedRight != 0 || encoderSpeedRight != 0)xil_printf("Encoder:  %d | %d \t--\t Error: %d | %d \t--\t Left: %d | Right: %d\t--\t Time: %d %ld\r\n",encoderSpeedLeft, encoderSpeedRight, errorLeft, errorRight, speedLeftNew, speedRightNew, (uint64_t)TIME_TO_NS(time_now));
 	}

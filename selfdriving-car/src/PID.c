@@ -42,7 +42,7 @@ void pid_init(pid_struct* pid, uint32_t kp, uint32_t ki, uint32_t kd, uint16_t m
  * @param max_value The maximum allowed value.
  * @return The limited value.
  */
-static int64_t applyLimits(int32_t value, int32_t min_value, int32_t max_value) {
+static int32_t applyLimits(int32_t value, int32_t min_value, int32_t max_value) {
     if (value > max_value) {
         return max_value;
     } else if (value < min_value) {
