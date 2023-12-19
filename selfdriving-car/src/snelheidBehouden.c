@@ -13,6 +13,7 @@
 #include "xparameters.h"
 #include <stdbool.h>
 #include "xtime_l.h"
+#include "PID.h"
 
 // --- Interrupt controller constants ---
 #define INTC_DEVICE_ID 			XPAR_PS7_SCUGIC_0_DEVICE_ID
@@ -20,15 +21,27 @@
 #define INTC_GPIO_INTERRUPT_ID 	XPAR_FABRIC_SPEED_SENSORS_AXI_GPIO_0_IP2INTC_IRPT_INTR
 #define ENCODER_INT 			XGPIO_IR_CH1_MASK
 
+// --- PID values ---
+#define MULTIPLICATION_FACTOR (2^16)
+#define KP 1.135
+#define KI 7.5285
+#define KD 0
+// --- PID constants ---
+#define Kp_VALUE (KP * MULTIPLICATION_FACTOR)
+#define Ki_VALUE (KI * MULTIPLICATION_FACTOR)
+#define Kd_VALUE (KD * MULTIPLICATION_FACTOR)
+
 // --- Global variables ---
 XGpio encoderInput; 	// The instance of the encoder input GPIO.
 XScuGic INTinstance;	// The instance of the Interrupt Controller
 XGpio ledOutput;		// The instance of the LED output GPIO.	
 uint16_t speed_storage[ENCODER_COUNT] = {0};	// Speed in mm/s
+pid_struct PID_left;
+pid_struct PID_right;
 
 // --- Function declarations ---
 static void adjustSpeed(globalData* Data , uint16_t s_speed[]);
-static int16_t applyLimits(int16_t value, int16_t min_value, int16_t max_value);
+// static int16_t applyLimits(int16_t value, int16_t min_value, int16_t max_value);
 static void onInterrupt(void* baseaddr_p);
 static XStatus InterruptSystemSetup(XScuGic *XScuGicInstancePtr);
 static XStatus IntcInitFunction(u16 DeviceId, XGpio *GpioInstancePtr);
@@ -61,6 +74,12 @@ XStatus init_snelheidBehouden() {
 		return XST_FAILURE;
 	}
 
+	xil_printf("P: %d, I: %d, D: %d \r\n", Kp_VALUE, Ki_VALUE, Kd_VALUE);
+
+	// Initialize the PID controler
+	pid_init(&PID_left, Kp_VALUE, Ki_VALUE, Kd_VALUE, MAX_MAX_SPEED_VALUE, MIN_SPEED_VALUE, MULTIPLICATION_FACTOR);
+	pid_init(&PID_right, Kp_VALUE, Ki_VALUE, Kd_VALUE, MAX_MAX_SPEED_VALUE, MIN_SPEED_VALUE, MULTIPLICATION_FACTOR);
+
 	// success
 	return XST_SUCCESS;
 }
@@ -78,26 +97,26 @@ void snelheidBehouden(globalData* Data) {
 	adjustSpeed(Data, speed_storage);
 }
 
-/**
- * Applies limits to a given value.
- *
- * This function takes a value and applies limits to it, ensuring that it does not exceed
- * the specified minimum and maximum values.
- *
- * @param value The value to be limited.
- * @param min_value The minimum allowed value.
- * @param max_value The maximum allowed value.
- * @return The limited value.
- */
-int16_t applyLimits(int16_t value, int16_t min_value, int16_t max_value){
-	if (value < min_value){	// Check if the value is below the minimum
-		return min_value;
-	} else if (value > max_value){	// Check if the value is above the maximum
-		return max_value;
-	} else {
-		return value;	// Return the value if it is within the limits
-	}
-}
+// /**
+//  * Applies limits to a given value.
+//  *
+//  * This function takes a value and applies limits to it, ensuring that it does not exceed
+//  * the specified minimum and maximum values.
+//  *
+//  * @param value The value to be limited.
+//  * @param min_value The minimum allowed value.
+//  * @param max_value The maximum allowed value.
+//  * @return The limited value.
+//  */
+// int16_t applyLimits(int16_t value, int16_t min_value, int16_t max_value){
+// 	if (value < min_value){	// Check if the value is below the minimum
+// 		return min_value;
+// 	} else if (value > max_value){	// Check if the value is above the maximum
+// 		return max_value;
+// 	} else {
+// 		return value;	// Return the value if it is within the limits
+// 	}
+// }
 
 void adjustSpeed(globalData* Data, uint16_t s_speed[]) {
 	// old speed storage
@@ -124,6 +143,8 @@ void adjustSpeed(globalData* Data, uint16_t s_speed[]) {
 		// calculate the new speed 
 		speedLeftNew = applyLimits(Data->speedLeft != 0 ? Data->speedLeft + errorLeft : 0, MIN_SPEED_VALUE, MAX_MAX_SPEED_VALUE);
 		speedRightNew = applyLimits(Data->speedRight + errorRight, MIN_SPEED_VALUE, MAX_MAX_SPEED_VALUE);
+		// speedLeftNew = pid_calculate(&PID_left, errorLeft, Data->speedLeft);
+		// speedRightNew = pid_calculate(&PID_right, errorRight, Data->speedRight);
 
 		if (Data->speedLeft != 0 || Data->speedRight != 0 || encoderSpeedRight != 0)xil_printf("Encoder:  %d | %d \t--\t Error: %d | %d \t--\t Left: %d | Right: %d\t--\t Time: %d %ld\r\n",encoderSpeedLeft, encoderSpeedRight, errorLeft, errorRight, speedLeftNew, speedRightNew, (uint64_t)TIME_TO_NS(time_now));
 	}
