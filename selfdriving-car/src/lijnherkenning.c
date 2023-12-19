@@ -6,10 +6,13 @@
  */
 
 #include "lijnherkenning.h"
+#include "xstatus.h"
 
-void init_lijnherkenning(){
+XStatus init_lijnherkenning(){
 	// run once on startup
 	xil_printf("Lijnherkenning start\r\n");
+
+	return XST_SUCCESS;
 }
 
 void lijnherkenning() {
