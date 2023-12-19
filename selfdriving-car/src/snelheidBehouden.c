@@ -90,7 +90,7 @@ XStatus init_snelheidBehouden() {
  * This function is responsible for maintaining the speed of the self-driving car.
  * It takes in the pointers to the left and right speed variables and updates them accordingly.
  *
- * @param speed The speed struct containing the speed values for the left and right motor.
+ * @param Data The globalData struct containing the speed values for the left and right motor.
  */
 void snelheidBehouden(globalData* Data) {
 	// Adjust the speed

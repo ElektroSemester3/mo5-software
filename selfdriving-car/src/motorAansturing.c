@@ -55,7 +55,7 @@ XStatus init_motorAansturing(){
  * This function is responsible for controlling the motor of the self-driving car.
  * It handles the logic for accelerating, decelerating, and changing direction of the motor.
  * 
- * @param speed The speed struct containing the speed values for the left and right motor.
+ * @param Data Pointer to the global data structure.
  * @return None
  */
 void motorAansturing(globalData* Data) {

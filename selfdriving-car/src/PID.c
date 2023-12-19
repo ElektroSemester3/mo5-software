@@ -18,7 +18,7 @@
  * @param min_value The minimum output value of the controller.
  * @param multiplication_factor The multiplication factor wat is used on the PID values.
  */
-void pid_init(pid_struct* pid, uint16_t kp, uint16_t ki, uint16_t kd, uint16_t max_value, uint16_t min_value, uint16_t multiplication_factor) {
+void pid_init(pid_struct* pid, uint32_t kp, uint32_t ki, uint32_t kd, uint16_t max_value, uint16_t min_value, uint16_t multiplication_factor) {
     pid->kp = kp;
     pid->ki = ki;
     pid->kd = kd;
@@ -42,7 +42,7 @@ void pid_init(pid_struct* pid, uint16_t kp, uint16_t ki, uint16_t kd, uint16_t m
  * @param max_value The maximum allowed value.
  * @return The limited value.
  */
-static int32_t applyLimits(int32_t value, int32_t min_value, int32_t max_value) {
+static int64_t applyLimits(int32_t value, int32_t min_value, int32_t max_value) {
     if (value > max_value) {
         return max_value;
     } else if (value < min_value) {
@@ -68,16 +68,23 @@ uint16_t pid_calculate(pid_struct* pid, int16_t error, uint16_t setpoint) {
     pid->last_time = time_now;
 
     // Calculate the integral
-    pid->integral += error * 1000000 * TIME_TO_NS(time_diff);
-    pid->integral = applyLimits(pid->integral, pid->min_value, pid->max_value);
+    uint64_t temp_integral = (uint64_t)error * TIME_TO_NS(time_diff) / 10^9 * pid->multiplication_factor^2;
+    if (temp_integral + pid->integral > sizeof(pid->integral) * 8 - 1) {
+        pid->integral = sizeof(pid->integral) * 8 - 1;
+    } else {
+        pid->integral += temp_integral;
+    }
+
 
     // Calculate the derivative
-    pid->derivative = (error - pid->last_error) * 1000000 / TIME_TO_NS(time_diff);
+    pid->derivative = (int64_t)(error - pid->last_error) * 10^9 / TIME_TO_NS(time_diff);
+
+    // Update the last error
     pid->last_error = error;
 
     // Calculate the output
     int32_t output = (pid->kp * error / pid->multiplication_factor) 
-    + (pid->ki * pid->integral / pid->multiplication_factor) 
+    + (pid->ki * pid->integral / pid->multiplication_factor^3) 
     + (pid->kd * pid->derivative / pid->multiplication_factor);
 
     output = applyLimits(output, pid->min_value, pid->max_value);
