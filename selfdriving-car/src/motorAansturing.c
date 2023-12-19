@@ -58,10 +58,10 @@ XStatus init_motorAansturing(){
  * @param speed The speed struct containing the speed values for the left and right motor.
  * @return None
  */
-void motorAansturing(speed_struct* speed) {
+void motorAansturing(globalData* Data) {
 	// Get speed
-	uint8_t percentage_left = applyPWMLimits(speed->left);
-	uint8_t percentage_right = applyPWMLimits(speed->right);
+	uint8_t percentage_left = applyPWMLimits(Data->speedLeft);
+	uint8_t percentage_right = applyPWMLimits(Data->speedRight);
 
 	// store old values
 	static uint8_t old_percentage_Left = 0;

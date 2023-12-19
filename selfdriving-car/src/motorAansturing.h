@@ -13,6 +13,6 @@
 #include "defines.h"
 
 XStatus init_motorAansturing();
-void motorAansturing(speed_struct* speed);
+void motorAansturing(globalData* Data);
 
 #endif /* SRC_MOTORAANSTURING_H_ */

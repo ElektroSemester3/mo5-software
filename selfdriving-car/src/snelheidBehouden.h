@@ -13,6 +13,6 @@
 #include "defines.h"
 
 XStatus init_snelheidBehouden();
-void snelheidBehouden(speed_struct* Speed);
+void snelheidBehouden(globalData* Data);
 
 #endif /* SRC_SNELHEIDBEHOUDEN_H_ */

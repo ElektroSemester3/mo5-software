@@ -27,7 +27,7 @@ XGpio ledOutput;		// The instance of the LED output GPIO.
 uint16_t speed_storage[ENCODER_COUNT] = {0};	// Speed in mm/s
 
 // --- Function declarations ---
-static void adjustSpeed(speed_struct* speed , uint16_t s_speed[]);
+static void adjustSpeed(globalData* Data , uint16_t s_speed[]);
 static int16_t applyLimits(int16_t value, int16_t min_value, int16_t max_value);
 static void onInterrupt(void* baseaddr_p);
 static XStatus InterruptSystemSetup(XScuGic *XScuGicInstancePtr);
@@ -73,9 +73,9 @@ XStatus init_snelheidBehouden() {
  *
  * @param speed The speed struct containing the speed values for the left and right motor.
  */
-void snelheidBehouden(speed_struct* speed) {
+void snelheidBehouden(globalData* Data) {
 	// Adjust the speed
-	adjustSpeed(speed, speed_storage);
+	adjustSpeed(Data, speed_storage);
 }
 
 /**
@@ -99,7 +99,7 @@ int16_t applyLimits(int16_t value, int16_t min_value, int16_t max_value){
 	}
 }
 
-void adjustSpeed(speed_struct* speed , uint16_t s_speed[]) {
+void adjustSpeed(globalData* Data, uint16_t s_speed[]) {
 	// old speed storage
 	static uint16_t speedLeftNew = 0;
 	static uint16_t speedRightNew = 0;
@@ -118,19 +118,19 @@ void adjustSpeed(speed_struct* speed , uint16_t s_speed[]) {
 		int16_t errorLeft = 0; 
 		int16_t errorRight = 0; 
 		// only calculate the error if the setpoint is not 0
-		if (speed->left != 0) errorLeft = NORMAL_MAX_SPEED_VALUE - encoderSpeedLeft * NORMAL_MAX_SPEED_VALUE/ speed->left;
-		if (speed->right != 0) errorRight = NORMAL_MAX_SPEED_VALUE - encoderSpeedRight * NORMAL_MAX_SPEED_VALUE/ speed->right;
+		if (Data->speedLeft != 0) errorLeft = NORMAL_MAX_SPEED_VALUE - encoderSpeedLeft * NORMAL_MAX_SPEED_VALUE/ Data->speedLeft;
+		if (Data->speedRight != 0) errorRight = NORMAL_MAX_SPEED_VALUE - encoderSpeedRight * NORMAL_MAX_SPEED_VALUE/ Data->speedRight;
 
 		// calculate the new speed 
-		speedLeftNew = applyLimits(speed->left != 0 ? speed->left + errorLeft : 0, MIN_SPEED_VALUE, MAX_MAX_SPEED_VALUE);
-		speedRightNew = applyLimits(speed->right + errorRight, MIN_SPEED_VALUE, MAX_MAX_SPEED_VALUE);
+		speedLeftNew = applyLimits(Data->speedLeft != 0 ? Data->speedLeft + errorLeft : 0, MIN_SPEED_VALUE, MAX_MAX_SPEED_VALUE);
+		speedRightNew = applyLimits(Data->speedRight + errorRight, MIN_SPEED_VALUE, MAX_MAX_SPEED_VALUE);
 
-		// if (*setpointRight != 0 || encoderSpeedLeft != 0 || encoderSpeedRight != 0)xil_printf("Encoder:  %d | %d \t--\t Error: %d | %d \t--\t Left: %d | Right: %d\t--\t Time: %d %ld\r\n",encoderSpeedLeft, encoderSpeedRight, errorLeft, errorRight, speedLeftNew, speedRightNew, (uint64_t)TIME_TO_NS(time_now));
+		if (Data->speedLeft != 0 || Data->speedRight != 0 || encoderSpeedRight != 0)xil_printf("Encoder:  %d | %d \t--\t Error: %d | %d \t--\t Left: %d | Right: %d\t--\t Time: %d %ld\r\n",encoderSpeedLeft, encoderSpeedRight, errorLeft, errorRight, speedLeftNew, speedRightNew, (uint64_t)TIME_TO_NS(time_now));
 	}
 
 	// set the new speed based on the stored value
-	speed->left = speedLeftNew;
-	speed->right = speedRightNew;
+	Data->speedLeft = speedLeftNew;
+	Data->speedRight = speedRightNew;
 }
 	
 /**
