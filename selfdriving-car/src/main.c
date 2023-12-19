@@ -16,18 +16,70 @@
 #include <stdio.h>
 #include "platform.h"
 #include "xil_printf.h"
+#include "xparameters.h"
+#include "xscugic.h"
+#include "xgpio.h"
+#include "xil_exception.h"
+#include "xil_printf.h"
+#include "xgpio.h"
+
+#include "defines.h"
 #include "obstakeldetectie.h"
 #include "lijnherkenning.h"
 #include "sturen.h"
 #include "snelheidBehouden.h"
 #include "motorAansturing.h"
 
+// --- TEMPORARY ---
+#define BUTTON_DEVICE_ID XPAR_USER_INTERFACE_BTNS_GPIO_DEVICE_ID
+#define BUTTON_CHANNEL 1
+#define BUTTON_MASK 0x1
+
+XGpio buttonGpio;
+
+int initButton() {
+    int status;
+    // Initialize the GPIO instance
+    status = XGpio_Initialize(&buttonGpio, BUTTON_DEVICE_ID);
+    if (status != XST_SUCCESS) {
+        printf("Error initializing button GPIO\r\n");
+        return XST_FAILURE;
+    }
+
+    // Set the GPIO channel direction to input
+    XGpio_SetDataDirection(&buttonGpio, BUTTON_CHANNEL, 0xFFFFFFFF);
+
+    return XST_SUCCESS;
+}
+// --- END TEMPORARY ---
+
+
 int main()
 {
     init_platform();
-    print("Hello World\n\r");
+    print("_Start_\r\n");
+    
+    // Initialize the modules
+    if (initButton() != XST_SUCCESS) return XST_FAILURE;
+
+   
 
     while (1) {
+        speed_struct Speed;
+
+        // --- TEMPORARY ---
+        uint8_t buttons = XGpio_DiscreteRead(&buttonGpio, BUTTON_CHANNEL);
+        if (buttons & BUTTON_MASK) {
+            Speed.left = DEFAULT_SPEED;
+            Speed.right = DEFAULT_SPEED;
+        }
+        else
+        {
+            Speed.left = 0;
+            Speed.right = 0;
+        }
+        // --- END TEMPORARY ---
+
     	obstakeldetectie();
     	lijnherkenning();
     	sturen();
