@@ -2,14 +2,13 @@
 #ifndef _DEFINES_H_
 #define _DEFINES_H_
 
-struct SpeedStruct
+typedef struct GlobalData
 {
-    uint8_t left;
-    uint8_t right;
-    uint8_t speed;
-};
-
-typedef struct SpeedStruct speed_struct;
+    uint8_t speedLeft;
+    uint8_t speedRight;
+    uint8_t speedBase;
+    uint8_t turnValue;
+} globalData;
 
 // --- Time constants ---
 #define TIME_TO_NS_DIVIDER 325 //XPAR_CPU_CORTEXA9_0_CPU_CLK_FREQ_HZ / 2000000
@@ -33,6 +32,11 @@ typedef struct SpeedStruct speed_struct;
 // -- Speed calculations --
 #define DISTANCE_PER_PULSE  TIRE_LENGTH_MM * 10 / ENCODER_DISK_SLOTS  	// DISTANCE_PER_PULSE / 10 = mm per pulse
 #define MAX_SPEED  TIRE_LENGTH_MM * 1000000 / ENCODER_DISK_SLOTS / MIN_PULSE_TIME // 665.37 mm/s = 2.395 km/h
+
+// --- Turn value ---
+#define DEFAULT_TURN_VALUE      128
+#define FULL_RIGHT_TURN_VALUE   255
+#define FULL_LEFT_TURN_VALUE    0
 
 // --- Loop times ---
 #define SPEED_CALC_LOOP_TIME  1000  // ns

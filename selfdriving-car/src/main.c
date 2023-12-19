@@ -65,18 +65,22 @@ int main()
    
 
     while (1) {
-        speed_struct Speed;
+        globalData Data;
 
         // --- TEMPORARY ---
         uint8_t buttons = XGpio_DiscreteRead(&buttonGpio, BUTTON_CHANNEL);
         if (buttons & BUTTON_MASK) {
-            Speed.left = DEFAULT_SPEED;
-            Speed.right = DEFAULT_SPEED;
+            Data.speedLeft = DEFAULT_SPEED;
+            Data.speedRight = DEFAULT_SPEED;
+            Data.speedBase = DEFAULT_SPEED;
+            Data.turnValue = FULL_RIGHT_TURN_VALUE;
         }
         else
         {
-            Speed.left = 0;
-            Speed.right = 0;
+            Data.speedLeft = 0;
+            Data.speedRight = 0;
+            Data.speedBase = 0;
+            Data.turnValue = DEFAULT_TURN_VALUE;
         }
         // --- END TEMPORARY ---
 
