@@ -8,7 +8,9 @@
 #ifndef SRC_OBSTAKELDETECTIE_H_
 #define SRC_OBSTAKELDETECTIE_H_
 
-int obstakeldetectieInit();
+#include "xstatus.h"
+
+XStatus obstakeldetectieInit();
 void obstakeldetectie();
 
 #endif /* SRC_OBSTAKELDETECTIE_H_ */

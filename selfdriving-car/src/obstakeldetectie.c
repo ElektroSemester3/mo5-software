@@ -10,6 +10,7 @@
 #include "xil_printf.h"
 #include "xil_exception.h"
 #include "xiicps.h"
+#include "xstatus.h"
 
 #define IIC_DEVICE_ID	XPAR_PS7_I2C_1_DEVICE_ID
 
@@ -18,7 +19,7 @@
 
 XIicPs iic;
 
-int obstakeldetectieInit() {
+XStatus obstakeldetectieInit() {
 	int status;
 	XIicPs_Config *config;
 
