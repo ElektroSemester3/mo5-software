@@ -89,8 +89,8 @@ int main()
     	obstakeldetectie();
     	lijnherkenning();
     	sturen();
-        motorAansturing(&Data);    // Sets the speed of the motors
         snelheidBehouden(&Data);   // Changes Speed.left and Speed.right
+        motorAansturing(&Data);    // Sets the speed of the motors
     }
 
     cleanup_platform();
