@@ -18,7 +18,7 @@ typedef struct PIDStruct {
 
     XTime last_time;
     int32_t last_error;
-    uint32_t integral;
+    int32_t integral;
     int32_t derivative;
 } pid_struct;
 

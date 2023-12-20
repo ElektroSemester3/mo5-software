@@ -7,6 +7,12 @@
 
 #include "PID.h"
 
+// --- limits ---
+#define MAX_OF(type) \
+    (type)(((type)(~0LLU) > (type)((1LLU<<((sizeof(type)<<3)-1))-1LLU)) ? (long long unsigned int)(type)(~0LLU) : (long long unsigned int)(type)((1LLU<<((sizeof(type)<<3)-1))-1LLU))
+#define MIN_OF(type) \
+    (type)(((type)(1LLU<<((sizeof(type)<<3)-1)) < (type)1) ? (long long int)((~0LLU)-((1LLU<<((sizeof(type)<<3)-1))-1LLU)) : 0LL)
+
 /**
  * Initializes the PID controller with the specified parameters.
  *
@@ -64,28 +70,35 @@ uint16_t pid_calculate(pid_struct* pid, int16_t error, uint16_t setpoint) {
     // Calculate the time difference
     XTime time_now = 0;
     XTime_GetTime(&time_now);
-    uint32_t time_diff = time_now - pid->last_time;
-    pid->last_time = time_now;
+    uint32_t time_diff = TIME_TO_NS(time_now) - pid->last_time;
+    pid->last_time = TIME_TO_NS(time_now);
+
+    if (setpoint == 0) {
+        pid->integral = 0;
+    }
 
     // Calculate the integral
-    uint64_t temp_integral = (uint64_t)error * TIME_TO_NS(time_diff) / 10^9 * pid->multiplication_factor^2;
-    if (temp_integral + pid->integral > sizeof(pid->integral) * 8 - 1) {
-        pid->integral = sizeof(pid->integral) * 8 - 1;
+    typeof(pid->integral) temp_integral = error * (int64_t)time_diff / (int64_t)1e3;
+    // prevent overflow depending on the type of pid->integral
+    if (temp_integral > MAX_OF(typeof(pid->integral))) {
+        pid->integral = MAX_OF(typeof(pid->integral));
+    } else if (temp_integral < MIN_OF(typeof(pid->integral))) {
+        pid->integral = MIN_OF(typeof(pid->integral));
     } else {
         pid->integral += temp_integral;
     }
 
 
     // Calculate the derivative
-    pid->derivative = (int64_t)(error - pid->last_error) * 10^9 / TIME_TO_NS(time_diff);
+    pid->derivative = (int64_t)(error - pid->last_error) * (int64_t)(1e9) / (int64_t)time_diff;
 
     // Update the last error
     pid->last_error = error;
 
     // Calculate the output
-    int32_t output = (pid->kp * error / pid->multiplication_factor) 
-    + (pid->ki * pid->integral / pid->multiplication_factor^3) 
-    + (pid->kd * pid->derivative / pid->multiplication_factor);
+    int32_t output = ((int64_t)pid->kp * error / (int32_t)pid->multiplication_factor)
+    + ((int64_t)pid->ki * pid->integral / ((int32_t)pid->multiplication_factor * (int32_t)1e3))
+    + ((int64_t)pid->kd * pid->derivative / (int32_t)pid->multiplication_factor);
 
     output = applyLimits(output, pid->min_value, pid->max_value);
 

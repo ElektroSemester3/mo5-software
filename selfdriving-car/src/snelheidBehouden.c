@@ -22,22 +22,21 @@
 #define ENCODER_INT 			XGPIO_IR_CH1_MASK
 
 // --- PID values ---
-#define MULTIPLICATION_FACTOR (2^16)
+#define MULTIPLICATION_FACTOR 0xFFFF
 #define KP 1.135
 #define KI 7.5285
 #define KD 0
 // --- PID constants ---
-#define Kp_VALUE (KP * MULTIPLICATION_FACTOR)
-#define Ki_VALUE (KI * MULTIPLICATION_FACTOR)
-#define Kd_VALUE (KD * MULTIPLICATION_FACTOR)
+#define Kp_VALUE (uint32_t)(KP * MULTIPLICATION_FACTOR)
+#define Ki_VALUE (uint32_t)(KI * MULTIPLICATION_FACTOR)
+#define Kd_VALUE (uint32_t)(KD * MULTIPLICATION_FACTOR)
 
 // --- Global variables ---
 XGpio encoderInput; 	// The instance of the encoder input GPIO.
 XScuGic INTinstance;	// The instance of the Interrupt Controller
 XGpio ledOutput;		// The instance of the LED output GPIO.	
-uint16_t speed_storage[ENCODER_COUNT] = {0};	// Speed in mm/s
-pid_struct PID_left;
-pid_struct PID_right;
+uint16_t speed_storage[encoder_count] = {0};	// Speed in mm/s
+pid_struct PID[encoder_count];
 
 // --- Function declarations ---
 static void adjustSpeed(globalData* Data , uint16_t s_speed[]);
@@ -45,6 +44,7 @@ static void adjustSpeed(globalData* Data , uint16_t s_speed[]);
 static void onInterrupt(void* baseaddr_p);
 static XStatus InterruptSystemSetup(XScuGic *XScuGicInstancePtr);
 static XStatus IntcInitFunction(u16 DeviceId, XGpio *GpioInstancePtr);
+static void resetSpeed(globalData* Data, uint8_t index);
 
 /**
  * @brief Initializes the "snelheidBehouden" module.
@@ -74,11 +74,12 @@ XStatus init_snelheidBehouden() {
 		return XST_FAILURE;
 	}
 
-	xil_printf("P: %d, I: %d, D: %d \r\n", Kp_VALUE, Ki_VALUE, Kd_VALUE);
+	xil_printf("P: %ud, I: %ud, D: %ud \r\n", Kp_VALUE, Ki_VALUE, Kd_VALUE);
 
 	// Initialize the PID controler
-	pid_init(&PID_left, Kp_VALUE, Ki_VALUE, Kd_VALUE, MAX_MAX_SPEED_VALUE, MIN_SPEED_VALUE, MULTIPLICATION_FACTOR);
-	pid_init(&PID_right, Kp_VALUE, Ki_VALUE, Kd_VALUE, MAX_MAX_SPEED_VALUE, MIN_SPEED_VALUE, MULTIPLICATION_FACTOR);
+	for (uint8_t i = 0; i < encoder_count; i++){
+		pid_init(&PID[i], Kp_VALUE, Ki_VALUE, Kd_VALUE, MAX_MAX_SPEED_VALUE, MIN_SPEED_VALUE, MULTIPLICATION_FACTOR);
+	}
 
 	// success
 	return XST_SUCCESS;
@@ -94,34 +95,8 @@ XStatus init_snelheidBehouden() {
  */
 void snelheidBehouden(globalData* Data) {
 	// Adjust the speed
-	adjustSpeed(Data, speed_storage);
-}
-
-// /**
-//  * Applies limits to a given value.
-//  *
-//  * This function takes a value and applies limits to it, ensuring that it does not exceed
-//  * the specified minimum and maximum values.
-//  *
-//  * @param value The value to be limited.
-//  * @param min_value The minimum allowed value.
-//  * @param max_value The maximum allowed value.
-//  * @return The limited value.
-//  */
-// int16_t applyLimits(int16_t value, int16_t min_value, int16_t max_value){
-// 	if (value < min_value){	// Check if the value is below the minimum
-// 		return min_value;
-// 	} else if (value > max_value){	// Check if the value is above the maximum
-// 		return max_value;
-// 	} else {
-// 		return value;	// Return the value if it is within the limits
-// 	}
-// }
-
-void adjustSpeed(globalData* Data, uint16_t s_speed[]) {
 	// old speed storage
-	static uint16_t speedLeftNew = 0;
-	static uint16_t speedRightNew = 0;
+	static uint16_t speedValue[encoder_count] = {0};
 	
 	// create a timer to adjust the speed in a certain time
 	XTime time_now = 0;
@@ -129,31 +104,77 @@ void adjustSpeed(globalData* Data, uint16_t s_speed[]) {
 	XTime_GetTime(&time_now);
 	if (time_now - time_old > NS_TO_TIME(SPEED_CALC_LOOP_TIME)){
 		time_old = time_now;
-		// calculate the speed in %
-		uint16_t encoderSpeedLeft = (uint32_t)((s_speed[0] * NORMAL_MAX_SPEED_VALUE) / MAX_SPEED); // mm/s to %
-		uint16_t encoderSpeedRight = (uint32_t)((s_speed[1] * NORMAL_MAX_SPEED_VALUE) / MAX_SPEED); // mm/s to %
 
-		// calculate the error value referd to the setpoint
-		int16_t errorLeft = 0; 
-		int16_t errorRight = 0; 
-		// only calculate the error if the setpoint is not 0
-		if (Data->speedLeft != 0) errorLeft = NORMAL_MAX_SPEED_VALUE - encoderSpeedLeft * NORMAL_MAX_SPEED_VALUE/ Data->speedLeft;
-		if (Data->speedRight != 0) errorRight = NORMAL_MAX_SPEED_VALUE - encoderSpeedRight * NORMAL_MAX_SPEED_VALUE/ Data->speedRight;
 
-		// calculate the new speed 
-//		speedLeftNew = applyLimits(Data->speedLeft != 0 ? Data->speedLeft + errorLeft : 0, MIN_SPEED_VALUE, MAX_MAX_SPEED_VALUE);
-//		speedRightNew = applyLimits(Data->speedRight + errorRight, MIN_SPEED_VALUE, MAX_MAX_SPEED_VALUE);
-		speedLeftNew = pid_calculate(&PID_left, errorLeft, Data->speedLeft);
-		speedRightNew = pid_calculate(&PID_right, errorRight, Data->speedRight);
 
-		if (Data->speedLeft != 0 || Data->speedRight != 0 || encoderSpeedRight != 0)xil_printf("Encoder:  %d | %d \t--\t Error: %d | %d \t--\t Left: %d | Right: %d\t--\t Time: %d %ld\r\n",encoderSpeedLeft, encoderSpeedRight, errorLeft, errorRight, speedLeftNew, speedRightNew, (uint64_t)TIME_TO_NS(time_now));
+		bool print = false;
+		for (uint8_t i = 0; i < encoder_count; i++){
+			// reset the speed storage if the speed is 0
+		 	resetSpeed(Data, i);
+
+			// calculate the speed in %
+			uint16_t encoderSpeed = (uint32_t)((speed_storage[i] * NORMAL_MAX_SPEED_VALUE) / MAX_SPEED); // mm/s to %
+
+			// get the setpoint value
+			uint16_t speed_setpoint = 0;
+			switch (i)
+			{
+			case encoder_left:
+				speed_setpoint = Data->speedLeft;
+				break;
+
+			case encoder_right:
+				speed_setpoint = Data->speedRight;
+				break;
+			
+			default:
+				break;
+			}
+
+			// calculate the error value referd to the setpoint
+			int16_t error = 0;
+			
+			// only calculate the error if the setpoint is not 0
+			// error = NORMAL_MAX_SPEED_VALUE - encoderSpeed * NORMAL_MAX_SPEED_VALUE / speed_setpoint;
+			error = speed_setpoint - encoderSpeed;
+		
+			// calculate the new speed
+			speedValue[i] = pid_calculate(&PID[i], error, speed_setpoint);
+			
+			//  if (speed_setpoint != 0 || encoderSpeed != 0){
+				xil_printf("Encoder:  %d \t-- Error: %d \t-- Speed value: %d \t--\t Time: %d \t | \t",encoderSpeed, error, speedValue[i], (uint64_t)TIME_TO_NS(time_now));
+				print = true;
+			//  }
+		}
+
+		if (print) xil_printf("\r\n");
 	}
 
 	// set the new speed based on the stored value
-	Data->speedLeft = speedLeftNew;
-	Data->speedRight = speedRightNew;
+	Data->speedLeft = speedValue[encoder_left];
+	Data->speedRight = speedValue[encoder_right];
 }
+
+static void resetSpeed(globalData* Data, uint8_t index){
+	typeof(Data->speedLeft) speed_setpoint = 0;
+	switch (index)
+	{
+	case encoder_left:
+		speed_setpoint = Data->speedLeft;
+		break;
+
+	case encoder_right:
+		speed_setpoint = Data->speedRight;
+		break;
 	
+	default:
+		break;
+	}
+
+	if (speed_setpoint == 0){
+		speed_storage[index] = 0;
+	}
+}
 /**
  * @brief Callback function for interrupt handling.
  *
@@ -163,7 +184,7 @@ void adjustSpeed(globalData* Data, uint16_t s_speed[]) {
  */
 static void onInterrupt(void* baseaddr_p) {
 	static uint8_t oldInput = 0;
-	static XTime old_encoderTime[ENCODER_COUNT] = {0};
+	static XTime old_encoderTime[encoder_count] = {0};
 	// Disable GPIO interrupts
 	XGpio_InterruptDisable(&encoderInput, ENCODER_INT);
 
@@ -183,7 +204,7 @@ static void onInterrupt(void* baseaddr_p) {
 
 	// Check if the changed bit has a rising edge
 	if (risingEdge != 0 && changedBit != 0) {
-		// Do something when there is a rising edge
+		// Do something when there is arising edge
 		// xil_printf("Rising edge detected: %d\r\n", changedBit);
 
 		// Get the time
