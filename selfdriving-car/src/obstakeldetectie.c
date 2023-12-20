@@ -6,11 +6,11 @@
  */
 
 #include "obstakeldetectie.h"
-#include "xparameters.h"
 #include "xil_printf.h"
 #include "xil_exception.h"
 #include "xiicps.h"
 #include "xstatus.h"
+#include "VL53L0X.h"
 
 #define IIC_DEVICE_ID	XPAR_PS7_I2C_1_DEVICE_ID
 
@@ -29,43 +29,50 @@ XStatus obstakeldetectieInit() {
 		return XST_FAILURE;
 	}
 
-	status = XIicPs_CfgInitialize(&iic, config, config->BaseAddress);
+	xil_printf("Initialized I2C\n\r");
+
+	status = connectionCheck();
 	if (status != XST_SUCCESS) {
-		xil_printf("Error: XIicPs_CfgInitialize()\n\r");
+		xil_printf("Error: connectionCheck()\n\r");
 		return XST_FAILURE;
 	}
 
-	status = XIicPs_SelfTest(&iic);
+	xil_printf("Ran connection check\n\r");
+
+	status = config_init();
 	if (status != XST_SUCCESS) {
-		xil_printf("Error: XIicPs_SelfTest()\n\r");
+		xil_printf("Error: config_init()\n\r");
 		return XST_FAILURE;
 	}
 
-	XIicPs_SetSClk(&iic, IIC_CLOCK_SPEED);
+	xil_printf("Initialized sensor config\n\r");
 
-	const int TEST_BUFFER_SIZE = 132;
-	u8 SendBuffer[TEST_BUFFER_SIZE];
-	u8 RecvBuffer[TEST_BUFFER_SIZE];
-
-	for (int Index = 0; Index < TEST_BUFFER_SIZE; Index++) {
-		SendBuffer[Index] = (Index % TEST_BUFFER_SIZE);
-		RecvBuffer[Index] = 0;
-	}
-
-	status = XIicPs_MasterSendPolled(&iic, SendBuffer,
-					 TEST_BUFFER_SIZE, IIC_SLAVE_ADDR);
+	status = tuning_loadDefault();
 	if (status != XST_SUCCESS) {
-		xil_printf("Error: XIicPs_MasterSendPolled()\n\r");
+		xil_printf("Error: tuning_loadDefault()\n\r");
 		return XST_FAILURE;
 	}
 
-	while (XIicPs_BusIsBusy(&iic)) {
-		/* NOP */
+	xil_printf("Loaded default tuning\n\r");
+
+	status = calibration_start();
+	if (status != XST_SUCCESS) {
+		xil_printf("Error: calibration_start()\n\r");
+		return XST_FAILURE;
 	}
+
+	xil_printf("Calibration completed\n\r");
 
 	return XST_SUCCESS;
 }
 
 void obstakeldetectie() {
-	//	Do something here
+	uint16_t distance = 0;
+
+	int status = measurement_start(&distance);
+	if (status != XST_SUCCESS) {
+		xil_printf("Error: measurement_start()\n\r");
+	}
+
+	xil_printf("Distance: %d\n\r", distance);
 }
