@@ -15,6 +15,9 @@
 #include "xtime_l.h"
 #include "PID.h"
 
+// --- Constants ---
+#define PRINT_INFO
+
 // --- Interrupt controller constants ---
 #define INTC_DEVICE_ID 			XPAR_PS7_SCUGIC_0_DEVICE_ID
 #define ENCODER_DEVICE_ID		XPAR_SPEED_SENSORS_AXI_GPIO_0_DEVICE_ID
@@ -34,17 +37,16 @@
 // --- Global variables ---
 XGpio encoderInput; 	// The instance of the encoder input GPIO.
 XScuGic INTinstance;	// The instance of the Interrupt Controller
-XGpio ledOutput;		// The instance of the LED output GPIO.	
 uint16_t speed_storage[encoder_count] = {0};	// Speed in mm/s
-pid_struct PID[encoder_count];
+pid_struct PID[encoder_count];	// The PID controller struct
 
 // --- Function declarations ---
-static void adjustSpeed(globalData* Data , uint16_t s_speed[]);
-// static int16_t applyLimits(int16_t value, int16_t min_value, int16_t max_value);
 static void onInterrupt(void* baseaddr_p);
 static XStatus InterruptSystemSetup(XScuGic *XScuGicInstancePtr);
 static XStatus IntcInitFunction(u16 DeviceId, XGpio *GpioInstancePtr);
 static void resetSpeed(globalData* Data, uint8_t index);
+
+// --- Function definitions ---
 
 /**
  * @brief Initializes the "snelheidBehouden" module.
@@ -74,9 +76,10 @@ XStatus init_snelheidBehouden() {
 		return XST_FAILURE;
 	}
 
-	xil_printf("P: %ud, I: %ud, D: %ud \r\n", Kp_VALUE, Ki_VALUE, Kd_VALUE);
-
 	// Initialize the PID controler
+	#ifdef PRINT_INFO
+		xil_printf("P: %u, I: %u, D: %u \r\n", Kp_VALUE, Ki_VALUE, Kd_VALUE);
+	#endif
 	for (uint8_t i = 0; i < encoder_count; i++){
 		pid_init(&PID[i], Kp_VALUE, Ki_VALUE, Kd_VALUE, MAX_MAX_SPEED_VALUE, MIN_SPEED_VALUE, MULTIPLICATION_FACTOR);
 	}
@@ -93,8 +96,7 @@ XStatus init_snelheidBehouden() {
  *
  * @param Data The globalData struct containing the speed values for the left and right motor.
  */
-void snelheidBehouden(globalData* Data) {
-	// Adjust the speed
+void snelheidBehouden(globalData* Data) {	// Adjust the speed
 	// old speed storage
 	static uint16_t speedValue[encoder_count] = {0};
 	
@@ -105,9 +107,10 @@ void snelheidBehouden(globalData* Data) {
 	if (time_now - time_old > NS_TO_TIME(SPEED_CALC_LOOP_TIME)){
 		time_old = time_now;
 
+		#ifdef PRINT_INFO
+			bool print = false;
+		#endif
 
-
-		bool print = false;
 		for (uint8_t i = 0; i < encoder_count; i++){
 			// reset the speed storage if the speed is 0
 		 	resetSpeed(Data, i);
@@ -141,13 +144,14 @@ void snelheidBehouden(globalData* Data) {
 			// calculate the new speed
 			speedValue[i] = pid_calculate(&PID[i], error, speed_setpoint);
 			
-			//  if (speed_setpoint != 0 || encoderSpeed != 0){
+			#ifdef PRINT_INFO
 				xil_printf("Encoder:  %d \t-- Error: %d \t-- Speed value: %d \t--\t Time: %d \t | \t",encoderSpeed, error, speedValue[i], (uint64_t)TIME_TO_NS(time_now));
 				print = true;
-			//  }
+			#endif
 		}
-
-		if (print) xil_printf("\r\n");
+		#ifdef PRINT_INFO
+			if (print) xil_printf("\r\n");
+		#endif
 	}
 
 	// set the new speed based on the stored value
@@ -155,8 +159,19 @@ void snelheidBehouden(globalData* Data) {
 	Data->speedRight = speedValue[encoder_right];
 }
 
+/**
+ * @brief Resets the speed storage if the speed is 0.
+ * 
+ * This function is responsible for resetting the speed storage if the speed is 0.
+ * 
+ * @param Data The globalData struct containing the speed values for the left and right motor.
+ * @param index The index of the encoder.
+ */
 static void resetSpeed(globalData* Data, uint8_t index){
-	typeof(Data->speedLeft) speed_setpoint = 0;
+	// define reset value
+	typeof(Data->speedLeft) speed_setpoint = MIN_SPEED_VALUE;
+
+	// get the setpoint value
 	switch (index)
 	{
 	case encoder_left:
@@ -171,10 +186,12 @@ static void resetSpeed(globalData* Data, uint8_t index){
 		break;
 	}
 
+	// reset the speed storage if the speed setpoint is 0
 	if (speed_setpoint == 0){
 		speed_storage[index] = 0;
 	}
 }
+
 /**
  * @brief Callback function for interrupt handling.
  *
