@@ -61,7 +61,13 @@ int main()
     
     // Initialize the modules
     if (initButton() != XST_SUCCESS) return XST_FAILURE;
-    if (obstakeldetectieInit(); != XST_SUCCESS) return XST_FAILURE;
+
+    int start = 0;
+    while (start == 0) {
+    	uint8_t button = XGpio_DiscreteRead(&buttonGpio, BUTTON_CHANNEL);
+    	if (button & 0x2) start = 1;
+    }
+    if (obstakeldetectieInit() != XST_SUCCESS) return XST_FAILURE;
    
 
     while (1) {
@@ -84,11 +90,15 @@ int main()
         }
         // --- END TEMPORARY ---
 
-    	obstakeldetectie();
-    	lijnherkenning();
-    	sturen();
-    	snelheidBehouden();
-    	motorAansturing();
+        if (buttons & 0x2) {
+            obstakeldetectie();
+        }
+
+    	// obstakeldetectie();
+    	// lijnherkenning();
+    	// sturen();
+    	// snelheidBehouden();
+    	// motorAansturing();
     }
 
     cleanup_platform();

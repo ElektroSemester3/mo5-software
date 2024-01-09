@@ -6,73 +6,82 @@
  */
 
 #include "VL53L0X.h"
+
 #include "xiicps.h"
 #include "xil_printf.h"
 
-#define IIC_DEVICE_ID	XPAR_PS7_I2C_1_DEVICE_ID
-#define IIC_CLOCK_SPEED	100000
-#define IIC_SLAVE_ADDR	0x29
+#define IIC_DEVICE_ID XPAR_PS7_I2C_1_DEVICE_ID
+#define IIC_CLOCK_SPEED 100000
+#define IIC_SLAVE_ADDR 0x29
 
-#define REG_MODEL_ID    0xC0
-#define EXPECTED_MODEL_ID   0xEE
+#define REG_MODEL_ID 0xC0
+#define EXPECTED_MODEL_ID 0xEE
 
-#define VL53L0X_REG_VHV_CONFIG_PAD_SCL_SDA__EXTSUP_HV     0x89
+#define VL53L0X_REG_VHV_CONFIG_PAD_SCL_SDA__EXTSUP_HV 0x89
 
-#define REG_IIC_MODE    0x88
-#define IIC_MODE_STANDARD   0x00
+#define REG_IIC_MODE 0x88
+#define IIC_MODE_STANDARD 0x00
 
-#define REG_SYSTEM_INTERRUPT_GPIO_CONFIG    0x0A
-#define SYSTEM_INTERRUPT_NEW_SAMPLE_READY   0x04
+#define REG_SYSTEM_INTERRUPT_GPIO_CONFIG 0x0A
+#define SYSTEM_INTERRUPT_NEW_SAMPLE_READY 0x04
 
-#define REG_GPIO_HV_MUX_ACTIVE_HIGH    0x84
-#define MASK_INTERRUPT_ACTIVE_LOW   ~0x10
+#define REG_GPIO_HV_MUX_ACTIVE_HIGH 0x84
+#define MASK_INTERRUPT_ACTIVE_LOW ~0x10
 
-#define REG_SYSTEM_INTERRUPT_CLEAR  0x0B
-#define SYSTEM_INTERRUPT_CLEAR  0x01
+#define REG_SYSTEM_INTERRUPT_CLEAR 0x0B
+#define SYSTEM_INTERRUPT_CLEAR 0x01
 
-#define REG_SYSTEM_SEQUENCE_CONFIG  0x01
+#define REG_SYSTEM_SEQUENCE_CONFIG 0x01
 #define RANGE_SEQUENCE_STEP_TCC 0x10
 #define RANGE_SEQUENCE_STEP_MSRC 0x04
 #define RANGE_SEQUENCE_STEP_DSS 0x28
 #define RANGE_SEQUENCE_STEP_PRE_RANGE 0x40
 #define RANGE_SEQUENCE_STEP_FINAL_RANGE 0x80
 
-#define REG_SYSRANGE_START  0x00
-#define SYSRANGE_ARMED  0x01
+#define REG_SYSRANGE_START 0x00
+#define SYSRANGE_ARMED 0x01
 
-#define REG_RESULT_INTERRUPT_STATUS    0x13
+#define REG_RESULT_INTERRUPT_STATUS 0x13
 
 #define REG_RESULT_RANGE_STATUS 0x14
 
-XIicPs iic;     // I2C instance
+#define REG_MSRC_CONFIG_CONTROL 0x60
+
+#define GLOBAL_CONFIG_REF_EN_START_SELECT 0xB6
+#define DYNAMIC_SPAD_NUM_REQUESTED_REF_SPAD 0x4E
+#define DYNAMIC_SPAD_REF_EN_START_OFFSET 0x4F
+#define GLOBAL_CONFIG_SPAD_ENABLES_REF_0 0xB0
+
+XIicPs iic;  // I2C instance
 
 static uint8_t stopVariable = 0;
+static uint32_t measurementTimingBudget;
 
 // Setup I2C hardware and run a self test
 int iic_init() {
     int status;
-	XIicPs_Config *config;
+    XIicPs_Config *config;
 
-	config = XIicPs_LookupConfig(IIC_DEVICE_ID);
-	if (config == NULL) {
-		xil_printf("Error: iic_init: IIC LookupConfig\n\r");
-		return XST_FAILURE;
-	}
+    config = XIicPs_LookupConfig(IIC_DEVICE_ID);
+    if (config == NULL) {
+        xil_printf("Error: iic_init: IIC LookupConfig\n\r");
+        return XST_FAILURE;
+    }
 
-	status = XIicPs_CfgInitialize(&iic, config, config->BaseAddress);
-	if (status != XST_SUCCESS) {
-		xil_printf("Error: iic_init: IIC CfgInitialize\n\r");
-		return XST_FAILURE;
-	}
+    status = XIicPs_CfgInitialize(&iic, config, config->BaseAddress);
+    if (status != XST_SUCCESS) {
+        xil_printf("Error: iic_init: IIC CfgInitialize\n\r");
+        return XST_FAILURE;
+    }
 
-	status = XIicPs_SelfTest(&iic);
-	if (status != XST_SUCCESS) {
-		xil_printf("Error: iic_init: IIC SelfTest\n\r");
-		return XST_FAILURE;
-	}
+    status = XIicPs_SelfTest(&iic);
+    if (status != XST_SUCCESS) {
+        xil_printf("Error: iic_init: IIC SelfTest\n\r");
+        return XST_FAILURE;
+    }
 
-	XIicPs_SetSClk(&iic, IIC_CLOCK_SPEED);
-	XIicPs_SetOptions(&iic, XIICPS_7_BIT_ADDR_OPTION);
+    XIicPs_SetSClk(&iic, IIC_CLOCK_SPEED);
+    XIicPs_SetOptions(&iic, XIICPS_7_BIT_ADDR_OPTION);
 
     return XST_SUCCESS;
 }
@@ -96,7 +105,7 @@ int iic_readReg(uint8_t reg, uint8_t *result) {
         return XST_FAILURE;
     }
 
-    xil_printf("READ registry: %02x = %02x\n\r", reg, *result);
+    //    xil_printf("READ registry: %02x = %02x\n\r", reg, *result);
 
     return XST_SUCCESS;
 }
@@ -110,13 +119,13 @@ int iic_readReg16(uint8_t reg, uint16_t *result) {
 
     status = XIicPs_MasterSendPolled(&iic, sendBuffer, 1, IIC_SLAVE_ADDR);
     if (status != XST_SUCCESS) {
-        xil_printf("Error: iic_readReg: IIC Send\n\r");
+        xil_printf("Error: iic_readReg16: IIC Send\n\r");
         return XST_FAILURE;
     }
 
     status = XIicPs_MasterRecvPolled(&iic, receiveBuffer, 1, IIC_SLAVE_ADDR);
     if (status != XST_SUCCESS) {
-        xil_printf("Error: iic_readReg: IIC Receive\n\r");
+        xil_printf("Error: iic_readReg16: IIC Receive\n\r");
         return XST_FAILURE;
     }
 
@@ -124,6 +133,29 @@ int iic_readReg16(uint8_t reg, uint16_t *result) {
     xil_printf("receiveBuffer[1]: %d\n\r", receiveBuffer[1]);
 
     *result = (receiveBuffer[0] << 8) | receiveBuffer[1];
+
+    xil_printf("READ registry: %02x = %04x\n\r", reg, *result);
+
+    return XST_SUCCESS;
+}
+
+int iic_readRegArray(uint8_t reg, uint8_t *data, int size) {
+    int status;
+    uint8_t sendBuffer[1];
+
+    sendBuffer[0] = reg;
+
+    status = XIicPs_MasterSendPolled(&iic, sendBuffer, 1, IIC_SLAVE_ADDR);
+    if (status != XST_SUCCESS) {
+        xil_printf("Error: iic_readRegArray: IIC Send\n\r");
+        return XST_FAILURE;
+    }
+
+    status = XIicPs_MasterRecvPolled(&iic, data, size, IIC_SLAVE_ADDR);
+    if (status != XST_SUCCESS) {
+        xil_printf("Error: iic_readRegArray: IIC Receive\n\r");
+        return XST_FAILURE;
+    }
 
     return XST_SUCCESS;
 }
@@ -141,12 +173,49 @@ int iic_writeReg(uint8_t reg, uint8_t data) {
         return XST_FAILURE;
     }
 
-    xil_printf("WRITE registry: %02x = %02x\n\r", reg, data);
+    //    xil_printf("WRITE registry: %02x = %02x\n\r", reg, data);
 
     return XST_SUCCESS;
 }
 
-// Check if the connection with the sensor is working by reading the device model ID register
+int iic_writeReg16(uint8_t reg, uint16_t data) {
+    int status;
+    uint8_t buffer[3];
+
+    buffer[0] = reg;
+    buffer[1] = (data >> 8) & 0xFF;
+    buffer[2] = data & 0xFF;
+    status = XIicPs_MasterSendPolled(&iic, buffer, 3, IIC_SLAVE_ADDR);
+    if (status != XST_SUCCESS) {
+        xil_printf("Error: iic_writeReg16: IIC Send\n\r");
+        return XST_FAILURE;
+    }
+
+    //    xil_printf("WRITE registry: %02x = %04x\n\r", reg, data);
+
+    return XST_SUCCESS;
+}
+
+int iic_writeRegArray(uint8_t reg, uint8_t *data, int size) {
+    int status;
+    uint8_t buffer[size + 1];
+
+    buffer[0] = reg;
+    for (int i = 0; i < size; i++) {
+        buffer[i + 1] = data[i];
+    }
+
+    status = XIicPs_MasterSendPolled(&iic, buffer, size + 1, IIC_SLAVE_ADDR);
+    if (status != XST_SUCCESS) {
+        xil_printf("Error: iic_writeRegArray: IIC Send\n\r");
+        return XST_FAILURE;
+    }
+
+    return XST_SUCCESS;
+}
+
+// Check if the connection with the sensor is working by reading the device
+// model ID register
 int connectionCheck() {
     int status;
     uint8_t deviceModelID;
@@ -170,13 +239,15 @@ int config_set2v8() {
     int status;
     uint8_t currentSetting;
 
-    status = iic_readReg(VL53L0X_REG_VHV_CONFIG_PAD_SCL_SDA__EXTSUP_HV, &currentSetting);
+    status = iic_readReg(VL53L0X_REG_VHV_CONFIG_PAD_SCL_SDA__EXTSUP_HV,
+                         &currentSetting);
     if (status != XST_SUCCESS) {
         xil_printf("Error: config_set2v8: IIC Read\n\r");
         return XST_FAILURE;
     }
 
-    status = iic_writeReg(VL53L0X_REG_VHV_CONFIG_PAD_SCL_SDA__EXTSUP_HV, currentSetting | 0x01);
+    status = iic_writeReg(VL53L0X_REG_VHV_CONFIG_PAD_SCL_SDA__EXTSUP_HV,
+                          currentSetting | 0x01);
     if (status != XST_SUCCESS) {
         xil_printf("Error: config_set2v8: IIC Write\n\r");
         return XST_FAILURE;
@@ -222,7 +293,8 @@ int config_getStopVariable() {
 int config_interrupts() {
     int status;
 
-    status = iic_writeReg(REG_SYSTEM_INTERRUPT_GPIO_CONFIG, SYSTEM_INTERRUPT_NEW_SAMPLE_READY);
+    status = iic_writeReg(REG_SYSTEM_INTERRUPT_GPIO_CONFIG,
+                          SYSTEM_INTERRUPT_NEW_SAMPLE_READY);
     if (status != XST_SUCCESS) {
         xil_printf("Error: config_interrupt: IIC Write\n\r");
         return XST_FAILURE;
@@ -235,7 +307,8 @@ int config_interrupts() {
         return XST_FAILURE;
     }
 
-    status = iic_writeReg(REG_GPIO_HV_MUX_ACTIVE_HIGH, currentSetting & MASK_INTERRUPT_ACTIVE_LOW);
+    status = iic_writeReg(REG_GPIO_HV_MUX_ACTIVE_HIGH,
+                          currentSetting & MASK_INTERRUPT_ACTIVE_LOW);
     if (status != XST_SUCCESS) {
         xil_printf("Error: config_interrupt: IIC Write\n\r");
         return XST_FAILURE;
@@ -251,13 +324,10 @@ int config_interrupts() {
 }
 
 // Set sequence steps
-int config_setSequenceSteps() {
+int config_setSequenceSteps(uint8_t setting) {
     int status;
 
-    uint8_t total = RANGE_SEQUENCE_STEP_TCC + RANGE_SEQUENCE_STEP_DSS + RANGE_SEQUENCE_STEP_MSRC + RANGE_SEQUENCE_STEP_PRE_RANGE + RANGE_SEQUENCE_STEP_FINAL_RANGE;
-    total = 0xE8;
-
-    status = iic_writeReg(REG_SYSTEM_SEQUENCE_CONFIG, total);
+    status = iic_writeReg(REG_SYSTEM_SEQUENCE_CONFIG, setting);
     if (status != XST_SUCCESS) {
         xil_printf("Error: config_sequenceSteps: IIC Write\n\r");
         return XST_FAILURE;
@@ -266,37 +336,37 @@ int config_setSequenceSteps() {
     return XST_SUCCESS;
 }
 
-// Setup the sensor config
-int config_init() {
+int config_disableRateChecks() {
     int status;
-    
-    status = config_set2v8();
+    uint8_t currentSetting;
+
+    status = iic_readReg(REG_MSRC_CONFIG_CONTROL, &currentSetting);
     if (status != XST_SUCCESS) {
-        xil_printf("Error: config_init: config_set2v8\n\r");
+        xil_printf("Error: congfig_disableRateChecks: IIC Read\n\r");
         return XST_FAILURE;
     }
 
-    status = config_setIicStandard();
+    status = iic_writeReg(REG_MSRC_CONFIG_CONTROL, currentSetting | 0x12);
     if (status != XST_SUCCESS) {
-        xil_printf("Error: config_init: config_setIicStandard\n\r");
+        xil_printf("Error: congfig_disableRateChecks: IIC Write\n\r");
         return XST_FAILURE;
     }
 
-    status = config_getStopVariable();
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: config_init: config_getStopVariable\n\r");
+    return XST_SUCCESS;
+}
+
+int config_setSignalRateLimit(float limit_Mcps) {
+    if (limit_Mcps < 0 || limit_Mcps > 511.99) {
+        xil_printf(
+            "Error: config_setSignalRateLimit: limit_Mcps out of range\n\r");
         return XST_FAILURE;
     }
 
-    status = config_interrupts();
+    int status;
+    uint16_t limit = limit_Mcps * (1 << 7);
+    status = iic_writeReg16(0x44, limit);
     if (status != XST_SUCCESS) {
-        xil_printf("Error: config_init: config_interrupt\n\r");
-        return XST_FAILURE;
-    }
-
-    status = config_setSequenceSteps();
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: config_init: config_setSequenceSteps\n\r");
+        xil_printf("Error: config_setSignalRateLimit: IIC Write\n\r");
         return XST_FAILURE;
     }
 
@@ -304,7 +374,7 @@ int config_init() {
 }
 
 // Load the default tuning settings (from the API)
-int tuning_loadDefault() {
+int config_loadDefaultTuning() {
     int status;
 
     status = iic_writeReg(0xFF, 0x01);
@@ -389,7 +459,180 @@ int tuning_loadDefault() {
     status &= iic_writeReg(0x80, 0x00);
 
     if (status != XST_SUCCESS) {
-        xil_printf("Error: tuning_loadDefault\n\r");
+        xil_printf("Error: config_loadDefaultTuning\n\r");
+        return XST_FAILURE;
+    }
+
+    return XST_SUCCESS;
+}
+
+int config_getSpadInfo(uint8_t *count, int *type_is_aperture) {
+    uint8_t tmp;
+
+    iic_writeReg(0x80, 0x01);
+    iic_writeReg(0xFF, 0x01);
+    iic_writeReg(0x00, 0x00);
+
+    iic_writeReg(0xFF, 0x06);
+    iic_readReg(0x83, &tmp);
+    iic_writeReg(0x83, tmp | 0x04);
+    iic_writeReg(0xFF, 0x07);
+    iic_writeReg(0x81, 0x01);
+
+    iic_writeReg(0x80, 0x01);
+
+    iic_writeReg(0x94, 0x6b);
+    iic_writeReg(0x83, 0x00);
+
+    int finished = 0;
+    while (finished == 0) {
+        iic_readReg(0x83, &tmp);
+        finished = tmp != 0x00;
+    }
+    iic_writeReg(0x83, 0x01);
+    iic_readReg(0x92, &tmp);
+
+    *count = tmp & 0x7f;
+    *type_is_aperture = (tmp >> 7) & 0x01;
+
+    iic_writeReg(0x81, 0x00);
+    iic_writeReg(0xFF, 0x06);
+    iic_readReg(0x83, &tmp);
+    iic_writeReg(0x83, tmp & ~0x04);
+    iic_writeReg(0xFF, 0x01);
+    iic_writeReg(0x00, 0x01);
+
+    iic_writeReg(0xFF, 0x00);
+    iic_writeReg(0x80, 0x00);
+
+    return XST_SUCCESS;
+}
+
+int config_setupSpads() {
+    int status;
+    uint8_t spadCount;
+    int spadIsGood;
+
+    status = config_getSpadInfo(&spadCount, &spadIsGood);
+    if (status != XST_SUCCESS) {
+        xil_printf("Error: config_setupSpads: config_getSpadInfo\n\r");
+        return XST_FAILURE;
+    }
+
+    uint8_t spadMap[6];
+    status = iic_readRegArray(0xB0, spadMap, 6);
+    if (status != XST_SUCCESS) {
+        xil_printf("Error: config_setupSpads: IIC Read\n\r");
+        return XST_FAILURE;
+    }
+
+    iic_writeReg(0xFF, 0x01);
+    iic_writeReg(DYNAMIC_SPAD_REF_EN_START_OFFSET, 0x00);
+    iic_writeReg(DYNAMIC_SPAD_NUM_REQUESTED_REF_SPAD, 0x2C);
+    iic_writeReg(0xFF, 0x00);
+    iic_writeReg(GLOBAL_CONFIG_REF_EN_START_SELECT, 0xB4);
+
+    uint8_t first_spad_to_enable =
+        spadIsGood ? 12 : 0;  // 12 is the first aperture spad
+    uint8_t spads_enabled = 0;
+
+    for (uint8_t i = 0; i < 48; i++) {
+        if (i < first_spad_to_enable || spads_enabled == spadCount) {
+            spadMap[i / 8] &= ~(1 << (i % 8));
+        } else if ((spadMap[i / 8] >> (i % 8)) & 0x1) {
+            spads_enabled++;
+        }
+    }
+
+    iic_writeRegArray(0xB0, spadMap, 6);
+}
+
+int config_setTimingBudget() {
+    int status;
+    uint32_t currentTimingBudget;
+
+    return XST_SUCCESS;
+}
+
+// Setup the sensor config
+int config_init() {
+    int status;
+
+    status = config_set2v8();
+    if (status != XST_SUCCESS) {
+        xil_printf("Error: config_init: config_set2v8\n\r");
+        return XST_FAILURE;
+    }
+
+    status = config_setIicStandard();
+    if (status != XST_SUCCESS) {
+        xil_printf("Error: config_init: config_setIicStandard\n\r");
+        return XST_FAILURE;
+    }
+
+    status = config_getStopVariable();
+    if (status != XST_SUCCESS) {
+        xil_printf("Error: config_init: config_getStopVariable\n\r");
+        return XST_FAILURE;
+    }
+
+    status = config_disableRateChecks();
+    if (status != XST_SUCCESS) {
+        xil_printf("Error: config_init: congfig_disableRateChecks\n\r");
+        return XST_FAILURE;
+    }
+
+    status = config_setSignalRateLimit(0.25);
+    if (status != XST_SUCCESS) {
+        xil_printf("Error: config_init: config_setSignalRateLimit\n\r");
+        return XST_FAILURE;
+    }
+
+    status = config_setSequenceSteps(0xFF);
+    if (status != XST_SUCCESS) {
+        xil_printf("Error: config_init: config_setSequenceSteps\n\r");
+        return XST_FAILURE;
+    }
+
+    status = config_setupSpads();
+    if (status != XST_SUCCESS) {
+        xil_printf("Error: config_init: config_setupSpads\n\r");
+        return XST_FAILURE;
+    }
+
+    status = config_loadDefaultTuning();
+    if (status != XST_SUCCESS) {
+        xil_printf("Error: config_init: config_loadDefaultTuning\n\r");
+        return XST_FAILURE;
+    }
+
+    status = config_interrupts();
+    if (status != XST_SUCCESS) {
+        xil_printf("Error: config_init: config_interrupt\n\r");
+        return XST_FAILURE;
+    }
+
+    status = config_setSequenceSteps(0x01);
+    if (status != XST_SUCCESS) {
+        xil_printf("Error: config_init: config_setSequenceSteps\n\r");
+        return XST_FAILURE;
+    }
+
+    status = config_setTimingBudget();
+    if (status != XST_SUCCESS) {
+        xil_printf("Error: config_init: config_setTimingBudget\n\r");
+        return XST_FAILURE;
+    }
+
+    status = config_setSequenceSteps(0xE8);
+    if (status != XST_SUCCESS) {
+        xil_printf("Error: config_init: config_setSequenceSteps\n\r");
+        return XST_FAILURE;
+    }
+
+    status = calibration_start();
+    if (status != XST_SUCCESS) {
+        xil_printf("Error: config_init: calibration_start\n\r");
         return XST_FAILURE;
     }
 
@@ -493,7 +736,11 @@ int calibration_start() {
         return XST_FAILURE;
     }
 
-    config_setSequenceSteps();
+    status = config_setSequenceSteps(0xE8);
+    if (status != XST_SUCCESS) {
+        xil_printf("Error: calibration_start: config_setSequenceSteps\n\r");
+        return XST_FAILURE;
+    }
 
     return XST_SUCCESS;
 }
@@ -508,7 +755,7 @@ int measurement_start(uint16_t *range) {
     status &= iic_writeReg(0x00, 0x01);
     status &= iic_writeReg(0xFF, 0x00);
     status &= iic_writeReg(0x80, 0x00);
-    
+
     if (status != XST_SUCCESS) {
         xil_printf("Error: measurement_start\n\r");
         return XST_FAILURE;
@@ -542,9 +789,7 @@ int measurement_start(uint16_t *range) {
         return XST_FAILURE;
     }
 
-    xil_printf("Measurement finished with status: %d\n\r", interruptStatus);
-
-    status = iic_readReg(REG_RESULT_RANGE_STATUS + 10, range);
+    status = iic_readReg16(REG_RESULT_RANGE_STATUS + 10, range);
     if (status != XST_SUCCESS) {
         xil_printf("Error: measurement_start: IIC Read\n\r");
         return XST_FAILURE;

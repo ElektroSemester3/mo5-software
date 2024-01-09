@@ -8,24 +8,16 @@
 #include "obstakeldetectie.h"
 #include "xil_printf.h"
 #include "xil_exception.h"
-#include "xiicps.h"
 #include "xstatus.h"
 #include "VL53L0X.h"
 
-#define IIC_DEVICE_ID	XPAR_PS7_I2C_1_DEVICE_ID
-
-#define IIC_SLAVE_ADDR	0x70
-#define IIC_CLOCK_SPEED	100000
-
-XIicPs iic;
 
 XStatus obstakeldetectieInit() {
 	int status;
-	XIicPs_Config *config;
 
-	config = XIicPs_LookupConfig(IIC_DEVICE_ID);
-	if (config == NULL) {
-		xil_printf("Error: XIicPs_LookupConfig()\n\r");
+	status = iic_init();
+	if (status != XST_SUCCESS) {
+		xil_printf("Error: iic_init()\n\r");
 		return XST_FAILURE;
 	}
 
@@ -46,22 +38,6 @@ XStatus obstakeldetectieInit() {
 	}
 
 	xil_printf("Initialized sensor config\n\r");
-
-	status = tuning_loadDefault();
-	if (status != XST_SUCCESS) {
-		xil_printf("Error: tuning_loadDefault()\n\r");
-		return XST_FAILURE;
-	}
-
-	xil_printf("Loaded default tuning\n\r");
-
-	status = calibration_start();
-	if (status != XST_SUCCESS) {
-		xil_printf("Error: calibration_start()\n\r");
-		return XST_FAILURE;
-	}
-
-	xil_printf("Calibration completed\n\r");
 
 	return XST_SUCCESS;
 }
