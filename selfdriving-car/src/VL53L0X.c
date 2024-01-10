@@ -8,6 +8,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "sleep.h"
 #include "xiicps.h"
 #include "xtime_l.h"
 
@@ -35,6 +36,7 @@ uint16_t getTimeout() { return io_timeout; }
 
 #define IIC_DEVICE_ID XPAR_PS7_I2C_1_DEVICE_ID
 #define IIC_CLOCK_SPEED 100000
+#define IIC_DELAY 100
 
 // The Arduino two-wire interface uses a 7-bit number for the address,
 // and sets the last bit correctly based on reads and writes
@@ -340,11 +342,10 @@ void writeReg(uint8_t reg, uint8_t value) {
     status = XIicPs_MasterSendPolled(&iic, buffer, 2, I2C_SLAVE_DEVICE_ADDRESS);
     if (status != XST_SUCCESS) {
         xil_printf("Error: writeReg\n\r");
-        return 0;
+        return;
     }
 
-    xil_printf("Wrote %02x to register %02x\n\r", value, reg);
-    usleep(100);
+    usleep(IIC_DELAY);
 }
 
 // Write a 16-bit register
@@ -358,11 +359,10 @@ void writeReg16Bit(uint8_t reg, uint16_t value) {
     status = XIicPs_MasterSendPolled(&iic, buffer, 3, I2C_SLAVE_DEVICE_ADDRESS);
     if (status != XST_SUCCESS) {
         xil_printf("Error: writeReg16Bit\n\r");
-        return 0;
+        return;
     }
 
-    xil_printf("Wrote %04x to register %02x\n\r", value, reg);
-    usleep(100);
+    usleep(IIC_DELAY);
 }
 
 // Write a 32-bit register
@@ -379,11 +379,10 @@ void writeReg32Bit(uint8_t reg, uint32_t value) {
     status = XIicPs_MasterSendPolled(&iic, buffer, 5, I2C_SLAVE_DEVICE_ADDRESS);
     if (status != XST_SUCCESS) {
         xil_printf("Error: writeReg32Bit\n\r");
-        return 0;
+        return;
     }
 
-    xil_printf("Wrote %08x to register %02x\n\r", value, reg);
-    usleep(100);
+    usleep(IIC_DELAY);
 }
 
 // Read an 8-bit register
@@ -396,7 +395,7 @@ uint8_t readReg(uint8_t reg) {
 
     status = XIicPs_MasterSendPolled(&iic, buffer, 1, I2C_SLAVE_DEVICE_ADDRESS);
     if (status != XST_SUCCESS) {
-        xil_printf("Error: readReg: send\n\r", status);
+        xil_printf("Error: readReg: send: %d\n\r", status);
         return 0;
     }
 
@@ -406,8 +405,7 @@ uint8_t readReg(uint8_t reg) {
         return 0;
     }
 
-    xil_printf("Read %02x from register %02x\n\r", value, reg);
-    usleep(100);
+    usleep(IIC_DELAY);
 
     return value;
 }
@@ -436,8 +434,7 @@ uint16_t readReg16Bit(uint8_t reg) {
     value = (uint16_t)recvBuffer[0] << 8;
     value |= (uint16_t)recvBuffer[1];
 
-    xil_printf("Read %04x from register %02x\n\r", value, reg);
-    usleep(100);
+    usleep(IIC_DELAY);
 
     return value;
 }
@@ -468,8 +465,7 @@ uint32_t readReg32Bit(uint8_t reg) {
     value |= (uint16_t)recvBuffer[2] << 8;
     value |= (uint16_t)recvBuffer[3];
 
-    xil_printf("Read %08x from register %02x\n\r", value, reg);
-    usleep(100);
+    usleep(IIC_DELAY);
 
     return value;
 }
@@ -488,11 +484,10 @@ void writeMulti(uint8_t reg, uint8_t const* src, uint8_t count) {
     status = XIicPs_MasterSendPolled(&iic, buffer, count + 1, I2C_SLAVE_DEVICE_ADDRESS);
     if (status != XST_SUCCESS) {
         xil_printf("Error: writeMulti\n\r");
-        return 0;
+        return;
     }
 
-    xil_printf("Wrote %d bytes to register %02x\n\r", count, reg);
-    usleep(100);
+    usleep(IIC_DELAY);
 }
 
 // Read an arbitrary number of bytes from the sensor, starting at the given
@@ -506,17 +501,16 @@ void readMulti(uint8_t reg, uint8_t* dst, uint8_t count) {
     status = XIicPs_MasterSendPolled(&iic, sendBuffer, 1, I2C_SLAVE_DEVICE_ADDRESS);
     if (status != XST_SUCCESS) {
         xil_printf("Error: readMulti: send\n\r");
-        return 0;
+        return;
     }
 
     status = XIicPs_MasterRecvPolled(&iic, dst, count, I2C_SLAVE_DEVICE_ADDRESS);
     if (status != XST_SUCCESS) {
         xil_printf("Error: readMulti: recv\n\r");
-        return 0;
+        return;
     }
 
-    xil_printf("Read %d bytes from register %02x\n\r", count, reg);
-    usleep(100);
+    usleep(IIC_DELAY);
 }
 
 // Set the return signal rate limit check value in units of MCPS (mega counts
