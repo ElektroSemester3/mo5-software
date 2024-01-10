@@ -1,809 +1,1116 @@
-/*
- * VL53L0X.c
- *
- *  Created on: 15 Dec 2023
- *      Author: Jochem
- */
+// Most of the functionality of this library is based on the VL53L0X API
+// provided by ST (STSW-IMG005), and some of the explanatory comments are quoted
+// or paraphrased from the API source code, API user manual (UM2039), and the
+// VL53L0X datasheet.
 
 #include "VL53L0X.h"
 
+#include <stdbool.h>
+#include <stdint.h>
+
 #include "xiicps.h"
-#include "xil_printf.h"
+#include "xtime_l.h"
+
+// Private Methods /////////////////////////////////////////////////////////////
+
+uint32_t millis() {
+    XTime t;
+    XTime_GetTime(&t);
+    return t / (325 * 1000);
+}
+
+uint16_t io_timeout;
+XIicPs iic;
+bool did_timeout;
+uint16_t timeout_start_ms;
+uint8_t stop_variable;  // read by init and used when starting measurement;
+                        // is StopVariable field of VL53L0X_DevData_t
+                        // structure in API
+uint32_t measurement_timing_budget_us;
+
+void setTimeout(uint16_t timeout) { io_timeout = timeout; }
+uint16_t getTimeout() { return io_timeout; }
+
+// Defines /////////////////////////////////////////////////////////////////////
 
 #define IIC_DEVICE_ID XPAR_PS7_I2C_1_DEVICE_ID
 #define IIC_CLOCK_SPEED 100000
-#define IIC_SLAVE_ADDR 0x29
 
-#define REG_MODEL_ID 0xC0
-#define EXPECTED_MODEL_ID 0xEE
+// The Arduino two-wire interface uses a 7-bit number for the address,
+// and sets the last bit correctly based on reads and writes
+#define ADDRESS_DEFAULT 0b0101001
 
-#define VL53L0X_REG_VHV_CONFIG_PAD_SCL_SDA__EXTSUP_HV 0x89
+// Record the current time to check an upcoming timeout against
+#define startTimeout() (timeout_start_ms = millis())
 
-#define REG_IIC_MODE 0x88
-#define IIC_MODE_STANDARD 0x00
+// Check if timeout is enabled (set to nonzero value) and has expired
+#define checkTimeoutExpired() \
+    (io_timeout > 0 && ((uint16_t)(millis() - timeout_start_ms) > io_timeout))
 
-#define REG_SYSTEM_INTERRUPT_GPIO_CONFIG 0x0A
-#define SYSTEM_INTERRUPT_NEW_SAMPLE_READY 0x04
+// Decode VCSEL (vertical cavity surface emitting laser) pulse period in PCLKs
+// from register value
+// based on VL53L0X_decode_vcsel_period()
+#define decodeVcselPeriod(reg_val) (((reg_val) + 1) << 1)
 
-#define REG_GPIO_HV_MUX_ACTIVE_HIGH 0x84
-#define MASK_INTERRUPT_ACTIVE_LOW ~0x10
+// Encode VCSEL pulse period register value from period in PCLKs
+// based on VL53L0X_encode_vcsel_period()
+#define encodeVcselPeriod(period_pclks) (((period_pclks) >> 1) - 1)
 
-#define REG_SYSTEM_INTERRUPT_CLEAR 0x0B
-#define SYSTEM_INTERRUPT_CLEAR 0x01
+// Calculate macro period in *nanoseconds* from VCSEL period in PCLKs
+// based on VL53L0X_calc_macro_period_ps()
+// PLL_period_ps = 1655; macro_period_vclks = 2304
+#define calcMacroPeriod(vcsel_period_pclks) \
+    ((((uint32_t)2304 * (vcsel_period_pclks) * 1655) + 500) / 1000)
 
-#define REG_SYSTEM_SEQUENCE_CONFIG 0x01
-#define RANGE_SEQUENCE_STEP_TCC 0x10
-#define RANGE_SEQUENCE_STEP_MSRC 0x04
-#define RANGE_SEQUENCE_STEP_DSS 0x28
-#define RANGE_SEQUENCE_STEP_PRE_RANGE 0x40
-#define RANGE_SEQUENCE_STEP_FINAL_RANGE 0x80
-
-#define REG_SYSRANGE_START 0x00
-#define SYSRANGE_ARMED 0x01
-
-#define REG_RESULT_INTERRUPT_STATUS 0x13
-
-#define REG_RESULT_RANGE_STATUS 0x14
-
-#define REG_MSRC_CONFIG_CONTROL 0x60
-
-#define GLOBAL_CONFIG_REF_EN_START_SELECT 0xB6
-#define DYNAMIC_SPAD_NUM_REQUESTED_REF_SPAD 0x4E
-#define DYNAMIC_SPAD_REF_EN_START_OFFSET 0x4F
-#define GLOBAL_CONFIG_SPAD_ENABLES_REF_0 0xB0
-
-XIicPs iic;  // I2C instance
-
-static uint8_t stopVariable = 0;
-static uint32_t measurementTimingBudget;
-
-// Setup I2C hardware and run a self test
-int iic_init() {
+// Initialize sensor using sequence based on VL53L0X_DataInit(),
+// VL53L0X_StaticInit(), and VL53L0X_PerformRefCalibration().
+// This function does not perform reference SPAD calibration
+// (VL53L0X_PerformRefSpadManagement()), since the API user manual says that it
+// is performed by ST on the bare modules; it seems like that should work well
+// enough unless a cover glass is added.
+// If io_2v8 (optional) is true or not given, the sensor is configured for 2V8
+// mode.
+bool init(bool io_2v8) {
+    // Initialize Comms
+    XIicPs_Config* config;
     int status;
-    XIicPs_Config *config;
 
-    config = XIicPs_LookupConfig(IIC_DEVICE_ID);
+    config = XIicPs_LookupConfig(XPAR_PS7_I2C_1_DEVICE_ID);
     if (config == NULL) {
-        xil_printf("Error: iic_init: IIC LookupConfig\n\r");
-        return XST_FAILURE;
+        xil_printf("Error: XIicPs_LookupConfig\n\r");
+        return false;
     }
 
     status = XIicPs_CfgInitialize(&iic, config, config->BaseAddress);
     if (status != XST_SUCCESS) {
-        xil_printf("Error: iic_init: IIC CfgInitialize\n\r");
-        return XST_FAILURE;
+        xil_printf("Error: XIicPs_CfgInitialize\n\r");
+        return false;
     }
 
     status = XIicPs_SelfTest(&iic);
     if (status != XST_SUCCESS) {
-        xil_printf("Error: iic_init: IIC SelfTest\n\r");
-        return XST_FAILURE;
+        xil_printf("Error: XIicPs_SelfTest\n\r");
+        return false;
     }
 
     XIicPs_SetSClk(&iic, IIC_CLOCK_SPEED);
-    XIicPs_SetOptions(&iic, XIICPS_7_BIT_ADDR_OPTION);
 
-    return XST_SUCCESS;
+    xil_printf("IIC Initialized\n\r");
+
+    // check model ID register (value specified in datasheet)
+    if (readReg(IDENTIFICATION_MODEL_ID) != 0xEE) {
+        xil_printf("Model ID does not match!\n\r");
+        return false;
+    }
+
+    // VL53L0X_DataInit() begin
+
+    // sensor uses 1V8 mode for I/O by default; switch to 2V8 mode if necessary
+    if (io_2v8) {
+        xil_printf("Setting 2V8 mode\n\r");
+        writeReg(
+            VHV_CONFIG_PAD_SCL_SDA__EXTSUP_HV,
+            readReg(VHV_CONFIG_PAD_SCL_SDA__EXTSUP_HV) | 0x01);  // set bit 0
+    }
+
+    // "Set I2C standard mode"
+    writeReg(0x88, 0x00);
+
+    writeReg(0x80, 0x01);
+    writeReg(0xFF, 0x01);
+    writeReg(0x00, 0x00);
+    stop_variable = readReg(0x91);
+    writeReg(0x00, 0x01);
+    writeReg(0xFF, 0x00);
+    writeReg(0x80, 0x00);
+
+    // disable SIGNAL_RATE_MSRC (bit 1) and SIGNAL_RATE_PRE_RANGE (bit 4) limit
+    // checks
+    writeReg(MSRC_CONFIG_CONTROL, readReg(MSRC_CONFIG_CONTROL) | 0x12);
+
+    // set final range signal rate limit to 0.25 MCPS (million counts per
+    // second)
+    setSignalRateLimit(0.25);
+
+    writeReg(SYSTEM_SEQUENCE_CONFIG, 0xFF);
+
+    // VL53L0X_DataInit() end
+
+    // VL53L0X_StaticInit() begin
+
+    uint8_t spad_count;
+    bool spad_type_is_aperture;
+    if (!getSpadInfo(&spad_count, &spad_type_is_aperture)) {
+        return false;
+    }
+
+    // The SPAD map (RefGoodSpadMap) is read by VL53L0X_get_info_from_device()
+    // in the API, but the same data seems to be more easily readable from
+    // GLOBAL_CONFIG_SPAD_ENABLES_REF_0 through _6, so read it from there
+    uint8_t ref_spad_map[6];
+    readMulti(GLOBAL_CONFIG_SPAD_ENABLES_REF_0, ref_spad_map, 6);
+
+    // -- VL53L0X_set_reference_spads() begin (assume NVM values are valid)
+
+    writeReg(0xFF, 0x01);
+    writeReg(DYNAMIC_SPAD_REF_EN_START_OFFSET, 0x00);
+    writeReg(DYNAMIC_SPAD_NUM_REQUESTED_REF_SPAD, 0x2C);
+    writeReg(0xFF, 0x00);
+    writeReg(GLOBAL_CONFIG_REF_EN_START_SELECT, 0xB4);
+
+    uint8_t first_spad_to_enable =
+        spad_type_is_aperture ? 12 : 0;  // 12 is the first aperture spad
+    uint8_t spads_enabled = 0;
+
+    for (uint8_t i = 0; i < 48; i++) {
+        if (i < first_spad_to_enable || spads_enabled == spad_count) {
+            // This bit is lower than the first one that should be enabled, or
+            // (reference_spad_count) bits have already been enabled, so zero
+            // this bit
+            ref_spad_map[i / 8] &= ~(1 << (i % 8));
+        } else if ((ref_spad_map[i / 8] >> (i % 8)) & 0x1) {
+            spads_enabled++;
+        }
+    }
+
+    writeMulti(GLOBAL_CONFIG_SPAD_ENABLES_REF_0, ref_spad_map, 6);
+
+    // -- VL53L0X_set_reference_spads() end
+
+    // -- VL53L0X_load_tuning_settings() begin
+    // DefaultTuningSettings from vl53l0x_tuning.h
+
+    writeReg(0xFF, 0x01);
+    writeReg(0x00, 0x00);
+
+    writeReg(0xFF, 0x00);
+    writeReg(0x09, 0x00);
+    writeReg(0x10, 0x00);
+    writeReg(0x11, 0x00);
+
+    writeReg(0x24, 0x01);
+    writeReg(0x25, 0xFF);
+    writeReg(0x75, 0x00);
+
+    writeReg(0xFF, 0x01);
+    writeReg(0x4E, 0x2C);
+    writeReg(0x48, 0x00);
+    writeReg(0x30, 0x20);
+
+    writeReg(0xFF, 0x00);
+    writeReg(0x30, 0x09);
+    writeReg(0x54, 0x00);
+    writeReg(0x31, 0x04);
+    writeReg(0x32, 0x03);
+    writeReg(0x40, 0x83);
+    writeReg(0x46, 0x25);
+    writeReg(0x60, 0x00);
+    writeReg(0x27, 0x00);
+    writeReg(0x50, 0x06);
+    writeReg(0x51, 0x00);
+    writeReg(0x52, 0x96);
+    writeReg(0x56, 0x08);
+    writeReg(0x57, 0x30);
+    writeReg(0x61, 0x00);
+    writeReg(0x62, 0x00);
+    writeReg(0x64, 0x00);
+    writeReg(0x65, 0x00);
+    writeReg(0x66, 0xA0);
+
+    writeReg(0xFF, 0x01);
+    writeReg(0x22, 0x32);
+    writeReg(0x47, 0x14);
+    writeReg(0x49, 0xFF);
+    writeReg(0x4A, 0x00);
+
+    writeReg(0xFF, 0x00);
+    writeReg(0x7A, 0x0A);
+    writeReg(0x7B, 0x00);
+    writeReg(0x78, 0x21);
+
+    writeReg(0xFF, 0x01);
+    writeReg(0x23, 0x34);
+    writeReg(0x42, 0x00);
+    writeReg(0x44, 0xFF);
+    writeReg(0x45, 0x26);
+    writeReg(0x46, 0x05);
+    writeReg(0x40, 0x40);
+    writeReg(0x0E, 0x06);
+    writeReg(0x20, 0x1A);
+    writeReg(0x43, 0x40);
+
+    writeReg(0xFF, 0x00);
+    writeReg(0x34, 0x03);
+    writeReg(0x35, 0x44);
+
+    writeReg(0xFF, 0x01);
+    writeReg(0x31, 0x04);
+    writeReg(0x4B, 0x09);
+    writeReg(0x4C, 0x05);
+    writeReg(0x4D, 0x04);
+
+    writeReg(0xFF, 0x00);
+    writeReg(0x44, 0x00);
+    writeReg(0x45, 0x20);
+    writeReg(0x47, 0x08);
+    writeReg(0x48, 0x28);
+    writeReg(0x67, 0x00);
+    writeReg(0x70, 0x04);
+    writeReg(0x71, 0x01);
+    writeReg(0x72, 0xFE);
+    writeReg(0x76, 0x00);
+    writeReg(0x77, 0x00);
+
+    writeReg(0xFF, 0x01);
+    writeReg(0x0D, 0x01);
+
+    writeReg(0xFF, 0x00);
+    writeReg(0x80, 0x01);
+    writeReg(0x01, 0xF8);
+
+    writeReg(0xFF, 0x01);
+    writeReg(0x8E, 0x01);
+    writeReg(0x00, 0x01);
+    writeReg(0xFF, 0x00);
+    writeReg(0x80, 0x00);
+
+    // -- VL53L0X_load_tuning_settings() end
+
+    // "Set interrupt config to new sample ready"
+    // -- VL53L0X_SetGpioConfig() begin
+
+    writeReg(SYSTEM_INTERRUPT_CONFIG_GPIO, 0x04);
+    writeReg(GPIO_HV_MUX_ACTIVE_HIGH,
+             readReg(GPIO_HV_MUX_ACTIVE_HIGH) & ~0x10);  // active low
+    writeReg(SYSTEM_INTERRUPT_CLEAR, 0x01);
+
+    // -- VL53L0X_SetGpioConfig() end
+
+    measurement_timing_budget_us = getMeasurementTimingBudget();
+
+    // "Disable MSRC and TCC by default"
+    // MSRC = Minimum Signal Rate Check
+    // TCC = Target CentreCheck
+    // -- VL53L0X_SetSequenceStepEnable() begin
+
+    writeReg(SYSTEM_SEQUENCE_CONFIG, 0xE8);
+
+    // -- VL53L0X_SetSequenceStepEnable() end
+
+    // "Recalculate timing budget"
+    setMeasurementTimingBudget(measurement_timing_budget_us);
+
+    // VL53L0X_StaticInit() end
+
+    // VL53L0X_PerformRefCalibration() begin (VL53L0X_perform_ref_calibration())
+
+    // -- VL53L0X_perform_vhv_calibration() begin
+
+    writeReg(SYSTEM_SEQUENCE_CONFIG, 0x01);
+    if (!performSingleRefCalibration(0x40)) {
+        return false;
+    }
+
+    // -- VL53L0X_perform_vhv_calibration() end
+
+    // -- VL53L0X_perform_phase_calibration() begin
+
+    writeReg(SYSTEM_SEQUENCE_CONFIG, 0x02);
+    if (!performSingleRefCalibration(0x00)) {
+        return false;
+    }
+
+    // -- VL53L0X_perform_phase_calibration() end
+
+    // "restore the previous Sequence Config"
+    writeReg(SYSTEM_SEQUENCE_CONFIG, 0xE8);
+
+    // VL53L0X_PerformRefCalibration() end
+
+    return true;
 }
 
-// Read an 8 bit value from an 8 bit register
-int iic_readReg(uint8_t reg, uint8_t *result) {
+// Write an 8-bit register
+void writeReg(uint8_t reg, uint8_t value) {
+    int status;
+    uint8_t buffer[2];
+
+    buffer[0] = reg;
+    buffer[1] = value;
+    status = XIicPs_MasterSendPolled(&iic, buffer, 2, I2C_SLAVE_DEVICE_ADDRESS);
+    if (status != XST_SUCCESS) {
+        xil_printf("Error: writeReg\n\r");
+        return 0;
+    }
+
+    xil_printf("Wrote %02x to register %02x\n\r", value, reg);
+    usleep(100);
+}
+
+// Write a 16-bit register
+void writeReg16Bit(uint8_t reg, uint16_t value) {
+    int status;
+    uint8_t buffer[3];
+
+    buffer[0] = reg;
+    buffer[1] = (value >> 8) & 0xFF;
+    buffer[2] = value & 0xFF;
+    status = XIicPs_MasterSendPolled(&iic, buffer, 3, I2C_SLAVE_DEVICE_ADDRESS);
+    if (status != XST_SUCCESS) {
+        xil_printf("Error: writeReg16Bit\n\r");
+        return 0;
+    }
+
+    xil_printf("Wrote %04x to register %02x\n\r", value, reg);
+    usleep(100);
+}
+
+// Write a 32-bit register
+void writeReg32Bit(uint8_t reg, uint32_t value) {
+    int status;
+    uint8_t buffer[5];
+
+    buffer[0] = reg;
+    buffer[1] = (value >> 24) & 0xFF;
+    buffer[2] = (value >> 16) & 0xFF;
+    buffer[3] = (value >> 8) & 0xFF;
+    buffer[4] = value & 0xFF;
+
+    status = XIicPs_MasterSendPolled(&iic, buffer, 5, I2C_SLAVE_DEVICE_ADDRESS);
+    if (status != XST_SUCCESS) {
+        xil_printf("Error: writeReg32Bit\n\r");
+        return 0;
+    }
+
+    xil_printf("Wrote %08x to register %02x\n\r", value, reg);
+    usleep(100);
+}
+
+// Read an 8-bit register
+uint8_t readReg(uint8_t reg) {
+    uint8_t value;
     int status;
     uint8_t buffer[1];
 
     buffer[0] = reg;
 
-    status = XIicPs_MasterSendPolled(&iic, buffer, 1, IIC_SLAVE_ADDR);
+    status = XIicPs_MasterSendPolled(&iic, buffer, 1, I2C_SLAVE_DEVICE_ADDRESS);
     if (status != XST_SUCCESS) {
-        xil_printf("Error: iic_readReg: IIC Send\n\r");
-        return XST_FAILURE;
+        xil_printf("Error: readReg: send\n\r", status);
+        return 0;
     }
 
-    status = XIicPs_MasterRecvPolled(&iic, result, 1, IIC_SLAVE_ADDR);
+    status = XIicPs_MasterRecvPolled(&iic, &value, 1, I2C_SLAVE_DEVICE_ADDRESS);
     if (status != XST_SUCCESS) {
-        xil_printf("Error: iic_readReg: IIC Receive\n\r");
-        return XST_FAILURE;
+        xil_printf("Error: readReg: recv\n\r");
+        return 0;
     }
 
-    //    xil_printf("READ registry: %02x = %02x\n\r", reg, *result);
+    xil_printf("Read %02x from register %02x\n\r", value, reg);
+    usleep(100);
 
-    return XST_SUCCESS;
+    return value;
 }
 
-int iic_readReg16(uint8_t reg, uint16_t *result) {
+// Read a 16-bit register
+uint16_t readReg16Bit(uint8_t reg) {
+    uint16_t value;
     int status;
     uint8_t sendBuffer[1];
-    uint8_t receiveBuffer[2];
+    uint8_t recvBuffer[2];
 
     sendBuffer[0] = reg;
 
-    status = XIicPs_MasterSendPolled(&iic, sendBuffer, 1, IIC_SLAVE_ADDR);
+    status = XIicPs_MasterSendPolled(&iic, sendBuffer, 1, I2C_SLAVE_DEVICE_ADDRESS);
     if (status != XST_SUCCESS) {
-        xil_printf("Error: iic_readReg16: IIC Send\n\r");
-        return XST_FAILURE;
+        xil_printf("Error: readReg16Bit: send\n\r");
+        return 0;
     }
 
-    status = XIicPs_MasterRecvPolled(&iic, receiveBuffer, 1, IIC_SLAVE_ADDR);
+    status = XIicPs_MasterRecvPolled(&iic, recvBuffer, 2, I2C_SLAVE_DEVICE_ADDRESS);
     if (status != XST_SUCCESS) {
-        xil_printf("Error: iic_readReg16: IIC Receive\n\r");
-        return XST_FAILURE;
+        xil_printf("Error: readReg16Bit: recv\n\r");
+        return 0;
     }
 
-    xil_printf("receiveBuffer[0]: %d\n\r", receiveBuffer[0]);
-    xil_printf("receiveBuffer[1]: %d\n\r", receiveBuffer[1]);
+    value = (uint16_t)recvBuffer[0] << 8;
+    value |= (uint16_t)recvBuffer[1];
 
-    *result = (receiveBuffer[0] << 8) | receiveBuffer[1];
+    xil_printf("Read %04x from register %02x\n\r", value, reg);
+    usleep(100);
 
-    xil_printf("READ registry: %02x = %04x\n\r", reg, *result);
-
-    return XST_SUCCESS;
+    return value;
 }
 
-int iic_readRegArray(uint8_t reg, uint8_t *data, int size) {
+// Read a 32-bit register
+uint32_t readReg32Bit(uint8_t reg) {
+    uint16_t value;
+    int status;
+    uint8_t sendBuffer[1];
+    uint8_t recvBuffer[4];
+
+    sendBuffer[0] = reg;
+
+    status = XIicPs_MasterSendPolled(&iic, sendBuffer, 1, I2C_SLAVE_DEVICE_ADDRESS);
+    if (status != XST_SUCCESS) {
+        xil_printf("Error: readReg32Bit: send\n\r");
+        return 0;
+    }
+
+    status = XIicPs_MasterRecvPolled(&iic, recvBuffer, 4, I2C_SLAVE_DEVICE_ADDRESS);
+    if (status != XST_SUCCESS) {
+        xil_printf("Error: readReg32Bit: recv\n\r");
+        return 0;
+    }
+
+    value = (uint16_t)recvBuffer[0] << 24;
+    value |= (uint16_t)recvBuffer[1] << 16;
+    value |= (uint16_t)recvBuffer[2] << 8;
+    value |= (uint16_t)recvBuffer[3];
+
+    xil_printf("Read %08x from register %02x\n\r", value, reg);
+    usleep(100);
+
+    return value;
+}
+
+// Write an arbitrary number of bytes from the given array to the sensor,
+// starting at the given register
+void writeMulti(uint8_t reg, uint8_t const* src, uint8_t count) {
+    int status;
+    uint8_t buffer[count + 1];
+
+    buffer[0] = reg;
+    for (int i = 0; i < count; i++) {
+        buffer[i + 1] = src[i];
+    }
+
+    status = XIicPs_MasterSendPolled(&iic, buffer, count + 1, I2C_SLAVE_DEVICE_ADDRESS);
+    if (status != XST_SUCCESS) {
+        xil_printf("Error: writeMulti\n\r");
+        return 0;
+    }
+
+    xil_printf("Wrote %d bytes to register %02x\n\r", count, reg);
+    usleep(100);
+}
+
+// Read an arbitrary number of bytes from the sensor, starting at the given
+// register, into the given array
+void readMulti(uint8_t reg, uint8_t* dst, uint8_t count) {
     int status;
     uint8_t sendBuffer[1];
 
     sendBuffer[0] = reg;
 
-    status = XIicPs_MasterSendPolled(&iic, sendBuffer, 1, IIC_SLAVE_ADDR);
+    status = XIicPs_MasterSendPolled(&iic, sendBuffer, 1, I2C_SLAVE_DEVICE_ADDRESS);
     if (status != XST_SUCCESS) {
-        xil_printf("Error: iic_readRegArray: IIC Send\n\r");
-        return XST_FAILURE;
+        xil_printf("Error: readMulti: send\n\r");
+        return 0;
     }
 
-    status = XIicPs_MasterRecvPolled(&iic, data, size, IIC_SLAVE_ADDR);
+    status = XIicPs_MasterRecvPolled(&iic, dst, count, I2C_SLAVE_DEVICE_ADDRESS);
     if (status != XST_SUCCESS) {
-        xil_printf("Error: iic_readRegArray: IIC Receive\n\r");
-        return XST_FAILURE;
+        xil_printf("Error: readMulti: recv\n\r");
+        return 0;
     }
 
-    return XST_SUCCESS;
+    xil_printf("Read %d bytes from register %02x\n\r", count, reg);
+    usleep(100);
 }
 
-// Write an 8 bit value to an 8 bit register
-int iic_writeReg(uint8_t reg, uint8_t data) {
-    int status;
-    uint8_t buffer[2];
-
-    buffer[0] = reg;
-    buffer[1] = data;
-    status = XIicPs_MasterSendPolled(&iic, buffer, 2, IIC_SLAVE_ADDR);
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: iic_writeReg: IIC Send\n\r");
-        return XST_FAILURE;
-    }
-
-    //    xil_printf("WRITE registry: %02x = %02x\n\r", reg, data);
-
-    return XST_SUCCESS;
-}
-
-int iic_writeReg16(uint8_t reg, uint16_t data) {
-    int status;
-    uint8_t buffer[3];
-
-    buffer[0] = reg;
-    buffer[1] = (data >> 8) & 0xFF;
-    buffer[2] = data & 0xFF;
-    status = XIicPs_MasterSendPolled(&iic, buffer, 3, IIC_SLAVE_ADDR);
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: iic_writeReg16: IIC Send\n\r");
-        return XST_FAILURE;
-    }
-
-    //    xil_printf("WRITE registry: %02x = %04x\n\r", reg, data);
-
-    return XST_SUCCESS;
-}
-
-int iic_writeRegArray(uint8_t reg, uint8_t *data, int size) {
-    int status;
-    uint8_t buffer[size + 1];
-
-    buffer[0] = reg;
-    for (int i = 0; i < size; i++) {
-        buffer[i + 1] = data[i];
-    }
-
-    status = XIicPs_MasterSendPolled(&iic, buffer, size + 1, IIC_SLAVE_ADDR);
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: iic_writeRegArray: IIC Send\n\r");
-        return XST_FAILURE;
-    }
-
-    return XST_SUCCESS;
-}
-
-// Check if the connection with the sensor is working by reading the device
-// model ID register
-int connectionCheck() {
-    int status;
-    uint8_t deviceModelID;
-
-    status = iic_readReg(REG_MODEL_ID, &deviceModelID);
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: connectionCheck: IIC Read\n\r");
-        return XST_FAILURE;
-    }
-
-    if (deviceModelID != EXPECTED_MODEL_ID) {
-        xil_printf("Error: deviceModelID != 0xEE\n\r");
-        return XST_FAILURE;
-    }
-
-    return XST_SUCCESS;
-}
-
-// Set the IO to 2V8 mode
-int config_set2v8() {
-    int status;
-    uint8_t currentSetting;
-
-    status = iic_readReg(VL53L0X_REG_VHV_CONFIG_PAD_SCL_SDA__EXTSUP_HV,
-                         &currentSetting);
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: config_set2v8: IIC Read\n\r");
-        return XST_FAILURE;
-    }
-
-    status = iic_writeReg(VL53L0X_REG_VHV_CONFIG_PAD_SCL_SDA__EXTSUP_HV,
-                          currentSetting | 0x01);
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: config_set2v8: IIC Write\n\r");
-        return XST_FAILURE;
-    }
-
-    return XST_SUCCESS;
-}
-
-// Set the I2C to standard mode
-int config_setIicStandard() {
-    int status;
-
-    status = iic_writeReg(REG_IIC_MODE, IIC_MODE_STANDARD);
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: config_setIicStandard: IIC Write\n\r");
-        return XST_FAILURE;
-    }
-
-    return XST_SUCCESS;
-}
-
-// Get the stop variable from the sensor
-int config_getStopVariable() {
-    int status;
-
-    status = iic_writeReg(0x80, 0x01);
-    status &= iic_writeReg(0xFF, 0x01);
-    status &= iic_writeReg(0x00, 0x00);
-    status &= iic_readReg(0x91, &stopVariable);
-    status &= iic_writeReg(0x00, 0x01);
-    status &= iic_writeReg(0xFF, 0x00);
-    status &= iic_writeReg(0x80, 0x00);
-
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: config_getStopVariable\n\r");
-        return XST_FAILURE;
-    }
-
-    return XST_SUCCESS;
-}
-
-// Setup the interrupt output as new sample ready and active low
-int config_interrupts() {
-    int status;
-
-    status = iic_writeReg(REG_SYSTEM_INTERRUPT_GPIO_CONFIG,
-                          SYSTEM_INTERRUPT_NEW_SAMPLE_READY);
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: config_interrupt: IIC Write\n\r");
-        return XST_FAILURE;
-    }
-
-    uint8_t currentSetting;
-    status = iic_readReg(REG_GPIO_HV_MUX_ACTIVE_HIGH, &currentSetting);
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: config_interrupt: IIC Read\n\r");
-        return XST_FAILURE;
-    }
-
-    status = iic_writeReg(REG_GPIO_HV_MUX_ACTIVE_HIGH,
-                          currentSetting & MASK_INTERRUPT_ACTIVE_LOW);
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: config_interrupt: IIC Write\n\r");
-        return XST_FAILURE;
-    }
-
-    status = iic_writeReg(REG_SYSTEM_INTERRUPT_CLEAR, SYSTEM_INTERRUPT_CLEAR);
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: config_interrupt: IIC Write\n\r");
-        return XST_FAILURE;
-    }
-
-    return XST_SUCCESS;
-}
-
-// Set sequence steps
-int config_setSequenceSteps(uint8_t setting) {
-    int status;
-
-    status = iic_writeReg(REG_SYSTEM_SEQUENCE_CONFIG, setting);
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: config_sequenceSteps: IIC Write\n\r");
-        return XST_FAILURE;
-    }
-
-    return XST_SUCCESS;
-}
-
-int config_disableRateChecks() {
-    int status;
-    uint8_t currentSetting;
-
-    status = iic_readReg(REG_MSRC_CONFIG_CONTROL, &currentSetting);
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: congfig_disableRateChecks: IIC Read\n\r");
-        return XST_FAILURE;
-    }
-
-    status = iic_writeReg(REG_MSRC_CONFIG_CONTROL, currentSetting | 0x12);
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: congfig_disableRateChecks: IIC Write\n\r");
-        return XST_FAILURE;
-    }
-
-    return XST_SUCCESS;
-}
-
-int config_setSignalRateLimit(float limit_Mcps) {
+// Set the return signal rate limit check value in units of MCPS (mega counts
+// per second). "This represents the amplitude of the signal reflected from the
+// target and detected by the device"; setting this limit presumably determines
+// the minimum measurement necessary for the sensor to report a valid reading.
+// Setting a lower limit increases the potential range of the sensor but also
+// seems to increase the likelihood of getting an inaccurate reading because of
+// unwanted reflections from objects other than the intended target.
+// Defaults to 0.25 MCPS as initialized by the ST API and this library.
+bool setSignalRateLimit(float limit_Mcps) {
     if (limit_Mcps < 0 || limit_Mcps > 511.99) {
-        xil_printf(
-            "Error: config_setSignalRateLimit: limit_Mcps out of range\n\r");
-        return XST_FAILURE;
+        return false;
     }
 
-    int status;
-    uint16_t limit = limit_Mcps * (1 << 7);
-    status = iic_writeReg16(0x44, limit);
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: config_setSignalRateLimit: IIC Write\n\r");
-        return XST_FAILURE;
-    }
-
-    return XST_SUCCESS;
+    // Q9.7 fixed point format (9 integer bits, 7 fractional bits)
+    writeReg16Bit(FINAL_RANGE_CONFIG_MIN_COUNT_RATE_RTN_LIMIT,
+                  limit_Mcps * (1 << 7));
+    return true;
 }
 
-// Load the default tuning settings (from the API)
-int config_loadDefaultTuning() {
-    int status;
-
-    status = iic_writeReg(0xFF, 0x01);
-    status &= iic_writeReg(0x00, 0x00);
-    status &= iic_writeReg(0xFF, 0x00);
-    status &= iic_writeReg(0x09, 0x00);
-    status &= iic_writeReg(0x10, 0x00);
-    status &= iic_writeReg(0x11, 0x00);
-    status &= iic_writeReg(0x24, 0x01);
-    status &= iic_writeReg(0x25, 0xFF);
-    status &= iic_writeReg(0x75, 0x00);
-    status &= iic_writeReg(0xFF, 0x01);
-    status &= iic_writeReg(0x4E, 0x2C);
-    status &= iic_writeReg(0x48, 0x00);
-    status &= iic_writeReg(0x30, 0x20);
-    status &= iic_writeReg(0xFF, 0x00);
-    status &= iic_writeReg(0x30, 0x09);
-    status &= iic_writeReg(0x54, 0x00);
-    status &= iic_writeReg(0x31, 0x04);
-    status &= iic_writeReg(0x32, 0x03);
-    status &= iic_writeReg(0x40, 0x83);
-    status &= iic_writeReg(0x46, 0x25);
-    status &= iic_writeReg(0x60, 0x00);
-    status &= iic_writeReg(0x27, 0x00);
-    status &= iic_writeReg(0x50, 0x06);
-    status &= iic_writeReg(0x51, 0x00);
-    status &= iic_writeReg(0x52, 0x96);
-    status &= iic_writeReg(0x56, 0x08);
-    status &= iic_writeReg(0x57, 0x30);
-    status &= iic_writeReg(0x61, 0x00);
-    status &= iic_writeReg(0x62, 0x00);
-    status &= iic_writeReg(0x64, 0x00);
-    status &= iic_writeReg(0x65, 0x00);
-    status &= iic_writeReg(0x66, 0xA0);
-    status &= iic_writeReg(0xFF, 0x01);
-    status &= iic_writeReg(0x22, 0x32);
-    status &= iic_writeReg(0x47, 0x14);
-    status &= iic_writeReg(0x49, 0xFF);
-    status &= iic_writeReg(0x4A, 0x00);
-    status &= iic_writeReg(0xFF, 0x00);
-    status &= iic_writeReg(0x7A, 0x0A);
-    status &= iic_writeReg(0x7B, 0x00);
-    status &= iic_writeReg(0x78, 0x21);
-    status &= iic_writeReg(0xFF, 0x01);
-    status &= iic_writeReg(0x23, 0x34);
-    status &= iic_writeReg(0x42, 0x00);
-    status &= iic_writeReg(0x44, 0xFF);
-    status &= iic_writeReg(0x45, 0x26);
-    status &= iic_writeReg(0x46, 0x05);
-    status &= iic_writeReg(0x40, 0x40);
-    status &= iic_writeReg(0x0E, 0x06);
-    status &= iic_writeReg(0x20, 0x1A);
-    status &= iic_writeReg(0x43, 0x40);
-    status &= iic_writeReg(0xFF, 0x00);
-    status &= iic_writeReg(0x34, 0x03);
-    status &= iic_writeReg(0x35, 0x44);
-    status &= iic_writeReg(0xFF, 0x01);
-    status &= iic_writeReg(0x31, 0x04);
-    status &= iic_writeReg(0x4B, 0x09);
-    status &= iic_writeReg(0x4C, 0x05);
-    status &= iic_writeReg(0x4D, 0x04);
-    status &= iic_writeReg(0xFF, 0x00);
-    status &= iic_writeReg(0x44, 0x00);
-    status &= iic_writeReg(0x45, 0x20);
-    status &= iic_writeReg(0x47, 0x08);
-    status &= iic_writeReg(0x48, 0x28);
-    status &= iic_writeReg(0x67, 0x00);
-    status &= iic_writeReg(0x70, 0x04);
-    status &= iic_writeReg(0x71, 0x01);
-    status &= iic_writeReg(0x72, 0xFE);
-    status &= iic_writeReg(0x76, 0x00);
-    status &= iic_writeReg(0x77, 0x00);
-    status &= iic_writeReg(0xFF, 0x01);
-    status &= iic_writeReg(0x0D, 0x01);
-    status &= iic_writeReg(0xFF, 0x00);
-    status &= iic_writeReg(0x80, 0x01);
-    status &= iic_writeReg(0x01, 0xF8);
-    status &= iic_writeReg(0xFF, 0x01);
-    status &= iic_writeReg(0x8E, 0x01);
-    status &= iic_writeReg(0x00, 0x01);
-    status &= iic_writeReg(0xFF, 0x00);
-    status &= iic_writeReg(0x80, 0x00);
-
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: config_loadDefaultTuning\n\r");
-        return XST_FAILURE;
-    }
-
-    return XST_SUCCESS;
+// Get the return signal rate limit check value in MCPS
+float getSignalRateLimit() {
+    return (float)readReg16Bit(FINAL_RANGE_CONFIG_MIN_COUNT_RATE_RTN_LIMIT) /
+           (1 << 7);
 }
 
-int config_getSpadInfo(uint8_t *count, int *type_is_aperture) {
+// Set the measurement timing budget in microseconds, which is the time allowed
+// for one measurement; the ST API and this library take care of splitting the
+// timing budget among the sub-steps in the ranging sequence. A longer timing
+// budget allows for more accurate measurements. Increasing the budget by a
+// factor of N decreases the range measurement standard deviation by a factor of
+// sqrt(N). Defaults to about 33 milliseconds; the minimum is 20 ms.
+// based on VL53L0X_set_measurement_timing_budget_micro_seconds()
+bool setMeasurementTimingBudget(uint32_t budget_us) {
+    SequenceStepEnables enables;
+    SequenceStepTimeouts timeouts;
+
+    uint16_t const StartOverhead = 1910;
+    uint16_t const EndOverhead = 960;
+    uint16_t const MsrcOverhead = 660;
+    uint16_t const TccOverhead = 590;
+    uint16_t const DssOverhead = 690;
+    uint16_t const PreRangeOverhead = 660;
+    uint16_t const FinalRangeOverhead = 550;
+
+    uint32_t used_budget_us = StartOverhead + EndOverhead;
+
+    getSequenceStepEnables(&enables);
+    getSequenceStepTimeouts(&enables, &timeouts);
+
+    if (enables.tcc) {
+        used_budget_us += (timeouts.msrc_dss_tcc_us + TccOverhead);
+    }
+
+    if (enables.dss) {
+        used_budget_us += 2 * (timeouts.msrc_dss_tcc_us + DssOverhead);
+    } else if (enables.msrc) {
+        used_budget_us += (timeouts.msrc_dss_tcc_us + MsrcOverhead);
+    }
+
+    if (enables.pre_range) {
+        used_budget_us += (timeouts.pre_range_us + PreRangeOverhead);
+    }
+
+    if (enables.final_range) {
+        used_budget_us += FinalRangeOverhead;
+
+        // "Note that the final range timeout is determined by the timing
+        // budget and the sum of all other timeouts within the sequence.
+        // If there is no room for the final range timeout, then an error
+        // will be set. Otherwise the remaining time will be applied to
+        // the final range."
+
+        if (used_budget_us > budget_us) {
+            // "Requested timeout too big."
+            return false;
+        }
+
+        uint32_t final_range_timeout_us = budget_us - used_budget_us;
+
+        // set_sequence_step_timeout() begin
+        // (SequenceStepId == VL53L0X_SEQUENCESTEP_FINAL_RANGE)
+
+        // "For the final range timeout, the pre-range timeout
+        //  must be added. To do this both final and pre-range
+        //  timeouts must be expressed in macro periods MClks
+        //  because they have different vcsel periods."
+
+        uint32_t final_range_timeout_mclks = timeoutMicrosecondsToMclks(
+            final_range_timeout_us, timeouts.final_range_vcsel_period_pclks);
+
+        if (enables.pre_range) {
+            final_range_timeout_mclks += timeouts.pre_range_mclks;
+        }
+
+        writeReg16Bit(FINAL_RANGE_CONFIG_TIMEOUT_MACROP_HI,
+                      encodeTimeout(final_range_timeout_mclks));
+
+        // set_sequence_step_timeout() end
+
+        measurement_timing_budget_us = budget_us;  // store for internal reuse
+    }
+    return true;
+}
+
+// Get the measurement timing budget in microseconds
+// based on VL53L0X_get_measurement_timing_budget_micro_seconds()
+// in us
+uint32_t getMeasurementTimingBudget() {
+    SequenceStepEnables enables;
+    SequenceStepTimeouts timeouts;
+
+    uint16_t const StartOverhead = 1910;
+    uint16_t const EndOverhead = 960;
+    uint16_t const MsrcOverhead = 660;
+    uint16_t const TccOverhead = 590;
+    uint16_t const DssOverhead = 690;
+    uint16_t const PreRangeOverhead = 660;
+    uint16_t const FinalRangeOverhead = 550;
+
+    // "Start and end overhead times always present"
+    uint32_t budget_us = StartOverhead + EndOverhead;
+
+    getSequenceStepEnables(&enables);
+    getSequenceStepTimeouts(&enables, &timeouts);
+
+    if (enables.tcc) {
+        budget_us += (timeouts.msrc_dss_tcc_us + TccOverhead);
+    }
+
+    if (enables.dss) {
+        budget_us += 2 * (timeouts.msrc_dss_tcc_us + DssOverhead);
+    } else if (enables.msrc) {
+        budget_us += (timeouts.msrc_dss_tcc_us + MsrcOverhead);
+    }
+
+    if (enables.pre_range) {
+        budget_us += (timeouts.pre_range_us + PreRangeOverhead);
+    }
+
+    if (enables.final_range) {
+        budget_us += (timeouts.final_range_us + FinalRangeOverhead);
+    }
+
+    measurement_timing_budget_us = budget_us;  // store for internal reuse
+    return budget_us;
+}
+
+// Set the VCSEL (vertical cavity surface emitting laser) pulse period for the
+// given period type (pre-range or final range) to the given value in PCLKs.
+// Longer periods seem to increase the potential range of the sensor.
+// Valid values are (even numbers only):
+//  pre:  12 to 18 (initialized default: 14)
+//  final: 8 to 14 (initialized default: 10)
+// based on VL53L0X_set_vcsel_pulse_period()
+bool setVcselPulsePeriod(vcselPeriodType type, uint8_t period_pclks) {
+    uint8_t vcsel_period_reg = encodeVcselPeriod(period_pclks);
+
+    SequenceStepEnables enables;
+    SequenceStepTimeouts timeouts;
+
+    getSequenceStepEnables(&enables);
+    getSequenceStepTimeouts(&enables, &timeouts);
+
+    // "Apply specific settings for the requested clock period"
+    // "Re-calculate and apply timeouts, in macro periods"
+
+    // "When the VCSEL period for the pre or final range is changed,
+    // the corresponding timeout must be read from the device using
+    // the current VCSEL period, then the new VCSEL period can be
+    // applied. The timeout then must be written back to the device
+    // using the new VCSEL period.
+    //
+    // For the MSRC timeout, the same applies - this timeout being
+    // dependant on the pre-range vcsel period."
+
+    if (type == VcselPeriodPreRange) {
+        // "Set phase check limits"
+        switch (period_pclks) {
+            case 12:
+                writeReg(PRE_RANGE_CONFIG_VALID_PHASE_HIGH, 0x18);
+                break;
+
+            case 14:
+                writeReg(PRE_RANGE_CONFIG_VALID_PHASE_HIGH, 0x30);
+                break;
+
+            case 16:
+                writeReg(PRE_RANGE_CONFIG_VALID_PHASE_HIGH, 0x40);
+                break;
+
+            case 18:
+                writeReg(PRE_RANGE_CONFIG_VALID_PHASE_HIGH, 0x50);
+                break;
+
+            default:
+                // invalid period
+                return false;
+        }
+        writeReg(PRE_RANGE_CONFIG_VALID_PHASE_LOW, 0x08);
+
+        // apply new VCSEL period
+        writeReg(PRE_RANGE_CONFIG_VCSEL_PERIOD, vcsel_period_reg);
+
+        // update timeouts
+
+        // set_sequence_step_timeout() begin
+        // (SequenceStepId == VL53L0X_SEQUENCESTEP_PRE_RANGE)
+
+        uint16_t new_pre_range_timeout_mclks =
+            timeoutMicrosecondsToMclks(timeouts.pre_range_us, period_pclks);
+
+        writeReg16Bit(PRE_RANGE_CONFIG_TIMEOUT_MACROP_HI,
+                      encodeTimeout(new_pre_range_timeout_mclks));
+
+        // set_sequence_step_timeout() end
+
+        // set_sequence_step_timeout() begin
+        // (SequenceStepId == VL53L0X_SEQUENCESTEP_MSRC)
+
+        uint16_t new_msrc_timeout_mclks =
+            timeoutMicrosecondsToMclks(timeouts.msrc_dss_tcc_us, period_pclks);
+
+        writeReg(MSRC_CONFIG_TIMEOUT_MACROP,
+                 (new_msrc_timeout_mclks > 256) ? 255
+                                                : (new_msrc_timeout_mclks - 1));
+
+        // set_sequence_step_timeout() end
+    } else if (type == VcselPeriodFinalRange) {
+        switch (period_pclks) {
+            case 8:
+                writeReg(FINAL_RANGE_CONFIG_VALID_PHASE_HIGH, 0x10);
+                writeReg(FINAL_RANGE_CONFIG_VALID_PHASE_LOW, 0x08);
+                writeReg(GLOBAL_CONFIG_VCSEL_WIDTH, 0x02);
+                writeReg(ALGO_PHASECAL_CONFIG_TIMEOUT, 0x0C);
+                writeReg(0xFF, 0x01);
+                writeReg(ALGO_PHASECAL_LIM, 0x30);
+                writeReg(0xFF, 0x00);
+                break;
+
+            case 10:
+                writeReg(FINAL_RANGE_CONFIG_VALID_PHASE_HIGH, 0x28);
+                writeReg(FINAL_RANGE_CONFIG_VALID_PHASE_LOW, 0x08);
+                writeReg(GLOBAL_CONFIG_VCSEL_WIDTH, 0x03);
+                writeReg(ALGO_PHASECAL_CONFIG_TIMEOUT, 0x09);
+                writeReg(0xFF, 0x01);
+                writeReg(ALGO_PHASECAL_LIM, 0x20);
+                writeReg(0xFF, 0x00);
+                break;
+
+            case 12:
+                writeReg(FINAL_RANGE_CONFIG_VALID_PHASE_HIGH, 0x38);
+                writeReg(FINAL_RANGE_CONFIG_VALID_PHASE_LOW, 0x08);
+                writeReg(GLOBAL_CONFIG_VCSEL_WIDTH, 0x03);
+                writeReg(ALGO_PHASECAL_CONFIG_TIMEOUT, 0x08);
+                writeReg(0xFF, 0x01);
+                writeReg(ALGO_PHASECAL_LIM, 0x20);
+                writeReg(0xFF, 0x00);
+                break;
+
+            case 14:
+                writeReg(FINAL_RANGE_CONFIG_VALID_PHASE_HIGH, 0x48);
+                writeReg(FINAL_RANGE_CONFIG_VALID_PHASE_LOW, 0x08);
+                writeReg(GLOBAL_CONFIG_VCSEL_WIDTH, 0x03);
+                writeReg(ALGO_PHASECAL_CONFIG_TIMEOUT, 0x07);
+                writeReg(0xFF, 0x01);
+                writeReg(ALGO_PHASECAL_LIM, 0x20);
+                writeReg(0xFF, 0x00);
+                break;
+
+            default:
+                // invalid period
+                return false;
+        }
+
+        // apply new VCSEL period
+        writeReg(FINAL_RANGE_CONFIG_VCSEL_PERIOD, vcsel_period_reg);
+
+        // update timeouts
+
+        // set_sequence_step_timeout() begin
+        // (SequenceStepId == VL53L0X_SEQUENCESTEP_FINAL_RANGE)
+
+        // "For the final range timeout, the pre-range timeout
+        //  must be added. To do this both final and pre-range
+        //  timeouts must be expressed in macro periods MClks
+        //  because they have different vcsel periods."
+
+        uint16_t new_final_range_timeout_mclks =
+            timeoutMicrosecondsToMclks(timeouts.final_range_us, period_pclks);
+
+        if (enables.pre_range) {
+            new_final_range_timeout_mclks += timeouts.pre_range_mclks;
+        }
+
+        writeReg16Bit(FINAL_RANGE_CONFIG_TIMEOUT_MACROP_HI,
+                      encodeTimeout(new_final_range_timeout_mclks));
+
+        // set_sequence_step_timeout end
+    } else {
+        // invalid type
+        return false;
+    }
+
+    // "Finally, the timing budget must be re-applied"
+
+    setMeasurementTimingBudget(measurement_timing_budget_us);
+
+    // "Perform the phase calibration. This is needed after changing on vcsel
+    // period." VL53L0X_perform_phase_calibration() begin
+
+    uint8_t sequence_config = readReg(SYSTEM_SEQUENCE_CONFIG);
+    writeReg(SYSTEM_SEQUENCE_CONFIG, 0x02);
+    performSingleRefCalibration(0x0);
+    writeReg(SYSTEM_SEQUENCE_CONFIG, sequence_config);
+
+    // VL53L0X_perform_phase_calibration() end
+
+    return true;
+}
+
+// Get the VCSEL pulse period in PCLKs for the given period type.
+// based on VL53L0X_get_vcsel_pulse_period()
+uint8_t getVcselPulsePeriod(vcselPeriodType type) {
+    if (type == VcselPeriodPreRange) {
+        return decodeVcselPeriod(readReg(PRE_RANGE_CONFIG_VCSEL_PERIOD));
+    } else if (type == VcselPeriodFinalRange) {
+        return decodeVcselPeriod(readReg(FINAL_RANGE_CONFIG_VCSEL_PERIOD));
+    } else {
+        return 255;
+    }
+}
+
+// Start continuous ranging measurements. If period_ms (optional) is 0 or not
+// given, continuous back-to-back mode is used (the sensor takes measurements as
+// often as possible); otherwise, continuous timed mode is used, with the given
+// inter-measurement period in milliseconds determining how often the sensor
+// takes a measurement.
+// based on VL53L0X_StartMeasurement()
+void startContinuous(uint32_t period_ms) {
+    writeReg(0x80, 0x01);
+    writeReg(0xFF, 0x01);
+    writeReg(0x00, 0x00);
+    writeReg(0x91, stop_variable);
+    writeReg(0x00, 0x01);
+    writeReg(0xFF, 0x00);
+    writeReg(0x80, 0x00);
+
+    if (period_ms != 0) {
+        // continuous timed mode
+
+        // VL53L0X_SetInterMeasurementPeriodMilliSeconds() begin
+
+        uint16_t osc_calibrate_val = readReg16Bit(OSC_CALIBRATE_VAL);
+
+        if (osc_calibrate_val != 0) {
+            period_ms *= osc_calibrate_val;
+        }
+
+        writeReg32Bit(SYSTEM_INTERMEASUREMENT_PERIOD, period_ms);
+
+        // VL53L0X_SetInterMeasurementPeriodMilliSeconds() end
+
+        writeReg(SYSRANGE_START, 0x04);  // VL53L0X_REG_SYSRANGE_MODE_TIMED
+    } else {
+        // continuous back-to-back mode
+        writeReg(SYSRANGE_START, 0x02);  // VL53L0X_REG_SYSRANGE_MODE_BACKTOBACK
+    }
+}
+
+// Stop continuous measurements
+// based on VL53L0X_StopMeasurement()
+void stopContinuous() {
+    writeReg(SYSRANGE_START, 0x01);  // VL53L0X_REG_SYSRANGE_MODE_SINGLESHOT
+
+    writeReg(0xFF, 0x01);
+    writeReg(0x00, 0x00);
+    writeReg(0x91, 0x00);
+    writeReg(0x00, 0x01);
+    writeReg(0xFF, 0x00);
+}
+
+// Returns a range reading in millimeters when continuous mode is active
+// (readRangeSingleMillimeters() also calls this function after starting a
+// single-shot range measurement)
+uint16_t readRangeContinuousMillimeters() {
+    startTimeout();
+    while ((readReg(RESULT_INTERRUPT_STATUS) & 0x07) == 0) {
+        if (checkTimeoutExpired()) {
+            did_timeout = true;
+            return 65535;
+        }
+    }
+
+    // assumptions: Linearity Corrective Gain is 1000 (default);
+    // fractional ranging is not enabled
+    uint16_t range = readReg16Bit(RESULT_RANGE_STATUS + 10);
+
+    writeReg(SYSTEM_INTERRUPT_CLEAR, 0x01);
+
+    return range;
+}
+
+// Performs a single-shot range measurement and returns the reading in
+// millimeters
+// based on VL53L0X_PerformSingleRangingMeasurement()
+uint16_t readRangeSingleMillimeters() {
+    writeReg(0x80, 0x01);
+    writeReg(0xFF, 0x01);
+    writeReg(0x00, 0x00);
+    writeReg(0x91, stop_variable);
+    writeReg(0x00, 0x01);
+    writeReg(0xFF, 0x00);
+    writeReg(0x80, 0x00);
+
+    writeReg(SYSRANGE_START, 0x01);
+
+    // "Wait until start bit has been cleared"
+    startTimeout();
+    while (readReg(SYSRANGE_START) & 0x01) {
+        if (checkTimeoutExpired()) {
+            did_timeout = true;
+            return 65535;
+        }
+    }
+
+    return readRangeContinuousMillimeters();
+}
+
+// Did a timeout occur in one of the read functions since the last call to
+// timeoutOccurred()?
+bool timeoutOccurred() {
+    bool tmp = did_timeout;
+    did_timeout = false;
+    return tmp;
+}
+
+// Private Methods /////////////////////////////////////////////////////////////
+
+// Get reference SPAD (single photon avalanche diode) count and type
+// based on VL53L0X_get_info_from_device(),
+// but only gets reference SPAD count and type
+bool getSpadInfo(uint8_t* count, bool* type_is_aperture) {
     uint8_t tmp;
 
-    iic_writeReg(0x80, 0x01);
-    iic_writeReg(0xFF, 0x01);
-    iic_writeReg(0x00, 0x00);
+    writeReg(0x80, 0x01);
+    writeReg(0xFF, 0x01);
+    writeReg(0x00, 0x00);
 
-    iic_writeReg(0xFF, 0x06);
-    iic_readReg(0x83, &tmp);
-    iic_writeReg(0x83, tmp | 0x04);
-    iic_writeReg(0xFF, 0x07);
-    iic_writeReg(0x81, 0x01);
+    writeReg(0xFF, 0x06);
+    writeReg(0x83, readReg(0x83) | 0x04);
+    writeReg(0xFF, 0x07);
+    writeReg(0x81, 0x01);
 
-    iic_writeReg(0x80, 0x01);
+    writeReg(0x80, 0x01);
 
-    iic_writeReg(0x94, 0x6b);
-    iic_writeReg(0x83, 0x00);
-
-    int finished = 0;
-    while (finished == 0) {
-        iic_readReg(0x83, &tmp);
-        finished = tmp != 0x00;
+    writeReg(0x94, 0x6b);
+    writeReg(0x83, 0x00);
+    startTimeout();
+    while (readReg(0x83) == 0x00) {
+        if (checkTimeoutExpired()) {
+            return false;
+        }
     }
-    iic_writeReg(0x83, 0x01);
-    iic_readReg(0x92, &tmp);
+    writeReg(0x83, 0x01);
+    tmp = readReg(0x92);
 
     *count = tmp & 0x7f;
     *type_is_aperture = (tmp >> 7) & 0x01;
 
-    iic_writeReg(0x81, 0x00);
-    iic_writeReg(0xFF, 0x06);
-    iic_readReg(0x83, &tmp);
-    iic_writeReg(0x83, tmp & ~0x04);
-    iic_writeReg(0xFF, 0x01);
-    iic_writeReg(0x00, 0x01);
+    writeReg(0x81, 0x00);
+    writeReg(0xFF, 0x06);
+    writeReg(0x83, readReg(0x83) & ~0x04);
+    writeReg(0xFF, 0x01);
+    writeReg(0x00, 0x01);
 
-    iic_writeReg(0xFF, 0x00);
-    iic_writeReg(0x80, 0x00);
+    writeReg(0xFF, 0x00);
+    writeReg(0x80, 0x00);
 
-    return XST_SUCCESS;
+    return true;
 }
 
-int config_setupSpads() {
-    int status;
-    uint8_t spadCount;
-    int spadIsGood;
+// Get sequence step enables
+// based on VL53L0X_GetSequenceStepEnables()
+void getSequenceStepEnables(SequenceStepEnables* enables) {
+    uint8_t sequence_config = readReg(SYSTEM_SEQUENCE_CONFIG);
 
-    status = config_getSpadInfo(&spadCount, &spadIsGood);
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: config_setupSpads: config_getSpadInfo\n\r");
-        return XST_FAILURE;
+    enables->tcc = (sequence_config >> 4) & 0x1;
+    enables->dss = (sequence_config >> 3) & 0x1;
+    enables->msrc = (sequence_config >> 2) & 0x1;
+    enables->pre_range = (sequence_config >> 6) & 0x1;
+    enables->final_range = (sequence_config >> 7) & 0x1;
+}
+
+// Get sequence step timeouts
+// based on get_sequence_step_timeout(),
+// but gets all timeouts instead of just the requested one, and also stores
+// intermediate values
+void getSequenceStepTimeouts(SequenceStepEnables const* enables,
+                             SequenceStepTimeouts* timeouts) {
+    timeouts->pre_range_vcsel_period_pclks =
+        getVcselPulsePeriod(VcselPeriodPreRange);
+
+    timeouts->msrc_dss_tcc_mclks = readReg(MSRC_CONFIG_TIMEOUT_MACROP) + 1;
+    timeouts->msrc_dss_tcc_us = timeoutMclksToMicroseconds(
+        timeouts->msrc_dss_tcc_mclks, timeouts->pre_range_vcsel_period_pclks);
+
+    timeouts->pre_range_mclks =
+        decodeTimeout(readReg16Bit(PRE_RANGE_CONFIG_TIMEOUT_MACROP_HI));
+    timeouts->pre_range_us = timeoutMclksToMicroseconds(
+        timeouts->pre_range_mclks, timeouts->pre_range_vcsel_period_pclks);
+
+    timeouts->final_range_vcsel_period_pclks =
+        getVcselPulsePeriod(VcselPeriodFinalRange);
+
+    timeouts->final_range_mclks =
+        decodeTimeout(readReg16Bit(FINAL_RANGE_CONFIG_TIMEOUT_MACROP_HI));
+
+    if (enables->pre_range) {
+        timeouts->final_range_mclks -= timeouts->pre_range_mclks;
     }
 
-    uint8_t spadMap[6];
-    status = iic_readRegArray(0xB0, spadMap, 6);
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: config_setupSpads: IIC Read\n\r");
-        return XST_FAILURE;
+    timeouts->final_range_us = timeoutMclksToMicroseconds(
+        timeouts->final_range_mclks, timeouts->final_range_vcsel_period_pclks);
+}
+
+// Decode sequence step timeout in MCLKs from register value
+// based on VL53L0X_decode_timeout()
+// Note: the original function returned a uint32_t, but the return value is
+// always stored in a uint16_t.
+uint16_t decodeTimeout(uint16_t reg_val) {
+    // format: "(LSByte * 2^MSByte) + 1"
+    return (uint16_t)((reg_val & 0x00FF)
+                      << (uint16_t)((reg_val & 0xFF00) >> 8)) +
+           1;
+}
+
+// Encode sequence step timeout register value from timeout in MCLKs
+// based on VL53L0X_encode_timeout()
+uint16_t encodeTimeout(uint32_t timeout_mclks) {
+    // format: "(LSByte * 2^MSByte) + 1"
+
+    uint32_t ls_byte = 0;
+    uint16_t ms_byte = 0;
+
+    if (timeout_mclks > 0) {
+        ls_byte = timeout_mclks - 1;
+
+        while ((ls_byte & 0xFFFFFF00) > 0) {
+            ls_byte >>= 1;
+            ms_byte++;
+        }
+
+        return (ms_byte << 8) | (ls_byte & 0xFF);
+    } else {
+        return 0;
     }
+}
 
-    iic_writeReg(0xFF, 0x01);
-    iic_writeReg(DYNAMIC_SPAD_REF_EN_START_OFFSET, 0x00);
-    iic_writeReg(DYNAMIC_SPAD_NUM_REQUESTED_REF_SPAD, 0x2C);
-    iic_writeReg(0xFF, 0x00);
-    iic_writeReg(GLOBAL_CONFIG_REF_EN_START_SELECT, 0xB4);
+// Convert sequence step timeout from MCLKs to microseconds with given VCSEL
+// period in PCLKs based on VL53L0X_calc_timeout_us()
+uint32_t timeoutMclksToMicroseconds(uint16_t timeout_period_mclks,
+                                    uint8_t vcsel_period_pclks) {
+    uint32_t macro_period_ns = calcMacroPeriod(vcsel_period_pclks);
 
-    uint8_t first_spad_to_enable =
-        spadIsGood ? 12 : 0;  // 12 is the first aperture spad
-    uint8_t spads_enabled = 0;
+    return ((timeout_period_mclks * macro_period_ns) + 500) / 1000;
+}
 
-    for (uint8_t i = 0; i < 48; i++) {
-        if (i < first_spad_to_enable || spads_enabled == spadCount) {
-            spadMap[i / 8] &= ~(1 << (i % 8));
-        } else if ((spadMap[i / 8] >> (i % 8)) & 0x1) {
-            spads_enabled++;
+// Convert sequence step timeout from microseconds to MCLKs with given VCSEL
+// period in PCLKs based on VL53L0X_calc_timeout_mclks()
+uint32_t timeoutMicrosecondsToMclks(uint32_t timeout_period_us,
+                                    uint8_t vcsel_period_pclks) {
+    uint32_t macro_period_ns = calcMacroPeriod(vcsel_period_pclks);
+
+    return (((timeout_period_us * 1000) + (macro_period_ns / 2)) /
+            macro_period_ns);
+}
+
+// based on VL53L0X_perform_single_ref_calibration()
+bool performSingleRefCalibration(uint8_t vhv_init_byte) {
+    writeReg(SYSRANGE_START,
+             0x01 | vhv_init_byte);  // VL53L0X_REG_SYSRANGE_MODE_START_STOP
+
+    startTimeout();
+    while ((readReg(RESULT_INTERRUPT_STATUS) & 0x07) == 0) {
+        if (checkTimeoutExpired()) {
+            return false;
         }
     }
 
-    iic_writeRegArray(0xB0, spadMap, 6);
-}
+    writeReg(SYSTEM_INTERRUPT_CLEAR, 0x01);
 
-int config_setTimingBudget() {
-    int status;
-    uint32_t currentTimingBudget;
+    writeReg(SYSRANGE_START, 0x00);
 
-    return XST_SUCCESS;
-}
-
-// Setup the sensor config
-int config_init() {
-    int status;
-
-    status = config_set2v8();
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: config_init: config_set2v8\n\r");
-        return XST_FAILURE;
-    }
-
-    status = config_setIicStandard();
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: config_init: config_setIicStandard\n\r");
-        return XST_FAILURE;
-    }
-
-    status = config_getStopVariable();
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: config_init: config_getStopVariable\n\r");
-        return XST_FAILURE;
-    }
-
-    status = config_disableRateChecks();
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: config_init: congfig_disableRateChecks\n\r");
-        return XST_FAILURE;
-    }
-
-    status = config_setSignalRateLimit(0.25);
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: config_init: config_setSignalRateLimit\n\r");
-        return XST_FAILURE;
-    }
-
-    status = config_setSequenceSteps(0xFF);
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: config_init: config_setSequenceSteps\n\r");
-        return XST_FAILURE;
-    }
-
-    status = config_setupSpads();
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: config_init: config_setupSpads\n\r");
-        return XST_FAILURE;
-    }
-
-    status = config_loadDefaultTuning();
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: config_init: config_loadDefaultTuning\n\r");
-        return XST_FAILURE;
-    }
-
-    status = config_interrupts();
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: config_init: config_interrupt\n\r");
-        return XST_FAILURE;
-    }
-
-    status = config_setSequenceSteps(0x01);
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: config_init: config_setSequenceSteps\n\r");
-        return XST_FAILURE;
-    }
-
-    status = config_setTimingBudget();
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: config_init: config_setTimingBudget\n\r");
-        return XST_FAILURE;
-    }
-
-    status = config_setSequenceSteps(0xE8);
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: config_init: config_setSequenceSteps\n\r");
-        return XST_FAILURE;
-    }
-
-    status = calibration_start();
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: config_init: calibration_start\n\r");
-        return XST_FAILURE;
-    }
-
-    return XST_SUCCESS;
-}
-
-int calibration_vhv() {
-    int status;
-
-    uint8_t sysrange_start = 0x01 | 0x40;
-    uint8_t sequence_config = 0x01;
-
-    status = iic_writeReg(REG_SYSTEM_SEQUENCE_CONFIG, sequence_config);
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: calibration_vhv: IIC Write\n\r");
-        return XST_FAILURE;
-    }
-
-    status = iic_writeReg(REG_SYSRANGE_START, sysrange_start);
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: calibration_vhv: IIC Write\n\r");
-        return XST_FAILURE;
-    }
-
-    uint8_t interruptStatus = 0;
-    do {
-        status = iic_readReg(REG_RESULT_RANGE_STATUS, &interruptStatus);
-    } while (status && ((interruptStatus & 0x07) == 0));
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: calibration_vhv: IIC Read\n\r");
-    }
-
-    status = iic_writeReg(REG_SYSTEM_INTERRUPT_CLEAR, SYSTEM_INTERRUPT_CLEAR);
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: calibration_vhv: IIC Write\n\r");
-        return XST_FAILURE;
-    }
-
-    status = iic_writeReg(REG_SYSRANGE_START, 0x00);
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: calibration_vhv: IIC Write\n\r");
-        return XST_FAILURE;
-    }
-
-    return XST_SUCCESS;
-}
-
-int calibration_phase() {
-    int status;
-
-    uint8_t sysrange_start = 0x01 | 0x00;
-    uint8_t sequence_config = 0x02;
-
-    status = iic_writeReg(REG_SYSTEM_SEQUENCE_CONFIG, sequence_config);
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: calibration_vhv: IIC Write\n\r");
-        return XST_FAILURE;
-    }
-
-    status = iic_writeReg(REG_SYSRANGE_START, sysrange_start);
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: calibration_vhv: IIC Write\n\r");
-        return XST_FAILURE;
-    }
-
-    uint8_t interruptStatus = 0;
-    do {
-        status = iic_readReg(REG_RESULT_RANGE_STATUS, &interruptStatus);
-    } while (status && ((interruptStatus & 0x07) == 0));
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: calibration_vhv: IIC Read\n\r");
-    }
-
-    status = iic_writeReg(REG_SYSTEM_INTERRUPT_CLEAR, SYSTEM_INTERRUPT_CLEAR);
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: calibration_vhv: IIC Write\n\r");
-        return XST_FAILURE;
-    }
-
-    status = iic_writeReg(REG_SYSRANGE_START, 0x00);
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: calibration_vhv: IIC Write\n\r");
-        return XST_FAILURE;
-    }
-
-    return XST_SUCCESS;
-}
-
-int calibration_start() {
-    int status;
-
-    status = calibration_vhv();
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: calibration_start: calibration_vhv\n\r");
-        return XST_FAILURE;
-    }
-
-    status = calibration_phase();
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: calibration_start: calibration_phase\n\r");
-        return XST_FAILURE;
-    }
-
-    status = config_setSequenceSteps(0xE8);
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: calibration_start: config_setSequenceSteps\n\r");
-        return XST_FAILURE;
-    }
-
-    return XST_SUCCESS;
-}
-
-int measurement_start(uint16_t *range) {
-    int status;
-
-    status = iic_writeReg(0x80, 0x01);
-    status &= iic_writeReg(0xFF, 0x01);
-    status &= iic_writeReg(0x00, 0x00);
-    status &= iic_writeReg(0x91, stopVariable);
-    status &= iic_writeReg(0x00, 0x01);
-    status &= iic_writeReg(0xFF, 0x00);
-    status &= iic_writeReg(0x80, 0x00);
-
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: measurement_start\n\r");
-        return XST_FAILURE;
-    }
-
-    status = iic_writeReg(REG_SYSRANGE_START, SYSRANGE_ARMED);
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: measurement_start: IIC Write\n\r");
-        return XST_FAILURE;
-    }
-
-    xil_printf("Starting measurement\n\r");
-
-    uint8_t measurementStarted = 0;
-    do {
-        status = iic_readReg(REG_SYSRANGE_START, &measurementStarted);
-    } while (status && (measurementStarted & 0x01));
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: measurement_start: IIC Read\n\r");
-        return XST_FAILURE;
-    }
-
-    xil_printf("Measurement started\n\r");
-
-    uint8_t interruptStatus = 0;
-    do {
-        status = iic_readReg(REG_RESULT_INTERRUPT_STATUS, &interruptStatus);
-    } while (((interruptStatus & 0x07) == 0));
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: measurement_start: IIC Read\n\r");
-        return XST_FAILURE;
-    }
-
-    status = iic_readReg16(REG_RESULT_RANGE_STATUS + 10, range);
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: measurement_start: IIC Read\n\r");
-        return XST_FAILURE;
-    }
-
-    status = iic_writeReg(REG_SYSTEM_INTERRUPT_CLEAR, SYSTEM_INTERRUPT_CLEAR);
-    if (status != XST_SUCCESS) {
-        xil_printf("Error: measurement_start: IIC Write\n\r");
-        return XST_FAILURE;
-    }
-
-    if (*range == 8190 || *range == 8191) {
-        *range = 0;
-    }
-
-    return XST_SUCCESS;
+    return true;
 }

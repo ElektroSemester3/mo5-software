@@ -90,9 +90,7 @@ int main()
         }
         // --- END TEMPORARY ---
 
-        if (buttons & 0x2) {
-            obstakeldetectie();
-        }
+        obstakeldetectie();
 
     	// obstakeldetectie();
     	// lijnherkenning();
