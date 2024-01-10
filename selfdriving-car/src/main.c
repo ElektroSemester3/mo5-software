@@ -14,21 +14,19 @@
  */
 
 #include <stdio.h>
+
+#include "defines.h"
+#include "lijnherkenning.h"
+#include "motorAansturing.h"
+#include "obstakeldetectie.h"
 #include "platform.h"
-#include "xil_printf.h"
-#include "xparameters.h"
-#include "xscugic.h"
+#include "snelheidBehouden.h"
+#include "sturen.h"
 #include "xgpio.h"
 #include "xil_exception.h"
 #include "xil_printf.h"
-#include "xgpio.h"
-
-#include "defines.h"
-#include "obstakeldetectie.h"
-#include "lijnherkenning.h"
-#include "sturen.h"
-#include "snelheidBehouden.h"
-#include "motorAansturing.h"
+#include "xparameters.h"
+#include "xscugic.h"
 
 // --- TEMPORARY ---
 #define BUTTON_DEVICE_ID XPAR_USER_INTERFACE_BTNS_GPIO_DEVICE_ID
@@ -53,22 +51,19 @@ int initButton() {
 }
 // --- END TEMPORARY ---
 
-
-int main()
-{
+int main() {
     init_platform();
     print("_Start_\r\n");
-    
+
     // Initialize the modules
     if (initButton() != XST_SUCCESS) return XST_FAILURE;
 
     int start = 0;
     while (start == 0) {
-    	uint8_t button = XGpio_DiscreteRead(&buttonGpio, BUTTON_CHANNEL);
-    	if (button & 0x2) start = 1;
+        uint8_t button = XGpio_DiscreteRead(&buttonGpio, BUTTON_CHANNEL);
+        if (button & 0x2) start = 1;
     }
     if (obstakeldetectieInit() != XST_SUCCESS) return XST_FAILURE;
-   
 
     while (1) {
         globalData Data;
@@ -80,9 +75,7 @@ int main()
             Data.speedRight = DEFAULT_SPEED;
             Data.speedBase = DEFAULT_SPEED;
             Data.turnValue = FULL_RIGHT_TURN_VALUE;
-        }
-        else
-        {
+        } else {
             Data.speedLeft = 0;
             Data.speedRight = 0;
             Data.speedBase = 0;
@@ -90,13 +83,16 @@ int main()
         }
         // --- END TEMPORARY ---
 
-        obstakeldetectie();
+        obstakeldetectie(&Data);
 
-    	// obstakeldetectie();
-    	// lijnherkenning();
-    	// sturen();
-    	// snelheidBehouden();
-    	// motorAansturing();
+        // obstakeldetectie();
+        // lijnherkenning();
+        // sturen();
+        // snelheidBehouden();
+        // motorAansturing();
+
+        xil_printf("Speed: %d\r\n", Data.speedBase);
+        usleep(100000);
     }
 
     cleanup_platform();
