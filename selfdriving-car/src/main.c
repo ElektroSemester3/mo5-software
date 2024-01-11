@@ -29,23 +29,23 @@
 #include "xscugic.h"
 
 // --- TEMPORARY ---
-#define BUTTON_DEVICE_ID XPAR_USER_INTERFACE_BTNS_GPIO_DEVICE_ID
-#define BUTTON_CHANNEL 1
-#define BUTTON_MASK 0x1
+#define SWITCH_DEVICE_ID XPAR_USER_INTERFACE_SWITCHES_GPIO_DEVICE_ID
+#define SWITCH_CHANNEL 1
+#define SWITCH_MASK 0x1
 
 XGpio buttonGpio;
 
 int initButton() {
     int status;
     // Initialize the GPIO instance
-    status = XGpio_Initialize(&buttonGpio, BUTTON_DEVICE_ID);
+    status = XGpio_Initialize(&buttonGpio, SWITCH_DEVICE_ID);
     if (status != XST_SUCCESS) {
         printf("Error initializing button GPIO\r\n");
         return XST_FAILURE;
     }
 
     // Set the GPIO channel direction to input
-    XGpio_SetDataDirection(&buttonGpio, BUTTON_CHANNEL, 0xFFFFFFFF);
+    XGpio_SetDataDirection(&buttonGpio, SWITCH_CHANNEL, 0xFFFFFFFF);
 
     return XST_SUCCESS;
 }
@@ -65,8 +65,8 @@ int main() {
         globalData Data;
 
         // --- TEMPORARY ---
-        uint8_t buttons = XGpio_DiscreteRead(&buttonGpio, BUTTON_CHANNEL);
-        if (buttons & BUTTON_MASK) {
+        uint8_t buttons = XGpio_DiscreteRead(&buttonGpio, SWITCH_CHANNEL);
+        if (buttons & SWITCH_MASK) {
             Data.speedLeft = DEFAULT_SPEED;
             Data.speedRight = DEFAULT_SPEED;
             Data.speedBase = DEFAULT_SPEED;

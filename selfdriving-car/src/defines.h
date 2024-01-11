@@ -44,7 +44,7 @@ enum Encoder {
 
 // --- Obstacle detection values ---
 #define SLOWDOWN_DISTANCE 500
-#define STOP_DISTANCE 100
+#define STOP_DISTANCE 80
 
 // --- Loop times ---
 #define SPEED_CALC_LOOP_TIME  1000  // ns

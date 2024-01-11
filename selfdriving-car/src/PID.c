@@ -61,7 +61,7 @@ uint16_t pid_calculate(pid_struct* pid, int16_t error, uint16_t setpoint) {
     pid->last_time = TIME_TO_NS(time_now);
 
     // Reset the integral if the setpoint is 0
-    if (setpoint == 0) {
+    if (setpoint == 0 || pid->integral < 0) {
         pid->integral = 0;
     }
 

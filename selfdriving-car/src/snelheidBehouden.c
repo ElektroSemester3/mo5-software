@@ -216,8 +216,11 @@ static void onInterrupt(void* baseaddr_p) {
 	// Get the changed bit
 	uint8_t changedBit = encoderInputValue ^ oldInput;
 
+	// Detect edge
+	uint8_t risingEdge = (changedBit & oldInput) & changedBit;
+
 	// Do something when there is arising edge
-	if (changedBit > 0) {
+	if (risingEdge != 0 && changedBit > 0) {
 		// xil_printf("Rising edge detected: %d\r\n", changedBit);
 
 		// Get the time
