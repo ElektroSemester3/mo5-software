@@ -2,10 +2,7 @@
 #define VL53L0X_h
 
 #include "stdbool.h"
-#include "xiicps.h"
 
-// class VL53L0X {
-//    public:
 // register addresses from API vl53l0x_device.h (ordered as listed there)
 enum regAddr {
     SYSRANGE_START = 0x00,
@@ -91,8 +88,7 @@ enum regAddr {
     ALGO_PHASECAL_CONFIG_TIMEOUT = 0x30,
 };
 
-typedef enum { VcselPeriodPreRange,
-               VcselPeriodFinalRange } vcselPeriodType;
+typedef enum { VcselPeriodPreRange, VcselPeriodFinalRange } vcselPeriodType;
 
 bool init(bool io_2v8);
 
@@ -124,11 +120,9 @@ void setTimeout(uint16_t timeout);
 uint16_t getTimeout();
 bool timeoutOccurred();
 
-//    private:
 // TCC: Target CentreCheck
 // MSRC: Minimum Signal Rate Check
 // DSS: Dynamic Spad Selection
-
 typedef struct {
     bool tcc, msrc, dss, pre_range, final_range;
 } SequenceStepEnables;
@@ -143,17 +137,13 @@ typedef struct {
 bool getSpadInfo(uint8_t* count, bool* type_is_aperture);
 
 void getSequenceStepEnables(SequenceStepEnables* enables);
-void getSequenceStepTimeouts(SequenceStepEnables const* enables,
-                             SequenceStepTimeouts* timeouts);
+void getSequenceStepTimeouts(SequenceStepEnables const* enables, SequenceStepTimeouts* timeouts);
 
 bool performSingleRefCalibration(uint8_t vhv_init_byte);
 
 static uint16_t decodeTimeout(uint16_t value);
 static uint16_t encodeTimeout(uint32_t timeout_mclks);
-static uint32_t timeoutMclksToMicroseconds(uint16_t timeout_period_mclks,
-                                           uint8_t vcsel_period_pclks);
-static uint32_t timeoutMicrosecondsToMclks(uint32_t timeout_period_us,
-                                           uint8_t vcsel_period_pclks);
-// };
+static uint32_t timeoutMclksToMicroseconds(uint16_t timeout_period_mclks, uint8_t vcsel_period_pclks);
+static uint32_t timeoutMicrosecondsToMclks(uint32_t timeout_period_us, uint8_t vcsel_period_pclks);
 
 #endif

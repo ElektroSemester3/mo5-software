@@ -38,6 +38,10 @@ typedef struct GlobalData
 #define FULL_RIGHT_TURN_VALUE   255
 #define FULL_LEFT_TURN_VALUE    0
 
+// --- Obstacle detection values ---
+#define SLOWDOWN_DISTANCE 500
+#define STOP_DISTANCE 100
+
 // --- Loop times ---
 #define SPEED_CALC_LOOP_TIME  1000  // ns
 

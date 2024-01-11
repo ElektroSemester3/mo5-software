@@ -36,7 +36,7 @@ uint16_t getTimeout() { return io_timeout; }
 
 #define IIC_DEVICE_ID XPAR_PS7_I2C_1_DEVICE_ID
 #define IIC_CLOCK_SPEED 100000
-#define IIC_DELAY 100
+#define IIC_DELAY 10
 
 // The Arduino two-wire interface uses a 7-bit number for the address,
 // and sets the last bit correctly based on reads and writes
@@ -79,29 +79,24 @@ bool init(bool io_2v8) {
 
     config = XIicPs_LookupConfig(XPAR_PS7_I2C_1_DEVICE_ID);
     if (config == NULL) {
-        xil_printf("Error: XIicPs_LookupConfig\n\r");
         return false;
     }
 
     status = XIicPs_CfgInitialize(&iic, config, config->BaseAddress);
     if (status != XST_SUCCESS) {
-        xil_printf("Error: XIicPs_CfgInitialize\n\r");
         return false;
     }
 
     status = XIicPs_SelfTest(&iic);
     if (status != XST_SUCCESS) {
-        xil_printf("Error: XIicPs_SelfTest\n\r");
         return false;
     }
 
     XIicPs_SetSClk(&iic, IIC_CLOCK_SPEED);
 
-    xil_printf("IIC Initialized\n\r");
 
     // check model ID register (value specified in datasheet)
     if (readReg(IDENTIFICATION_MODEL_ID) != 0xEE) {
-        xil_printf("Model ID does not match!\n\r");
         return false;
     }
 
@@ -341,7 +336,6 @@ void writeReg(uint8_t reg, uint8_t value) {
     buffer[1] = value;
     status = XIicPs_MasterSendPolled(&iic, buffer, 2, I2C_SLAVE_DEVICE_ADDRESS);
     if (status != XST_SUCCESS) {
-        xil_printf("Error: writeReg\n\r");
         return;
     }
 
@@ -358,7 +352,6 @@ void writeReg16Bit(uint8_t reg, uint16_t value) {
     buffer[2] = value & 0xFF;
     status = XIicPs_MasterSendPolled(&iic, buffer, 3, I2C_SLAVE_DEVICE_ADDRESS);
     if (status != XST_SUCCESS) {
-        xil_printf("Error: writeReg16Bit\n\r");
         return;
     }
 
@@ -378,7 +371,6 @@ void writeReg32Bit(uint8_t reg, uint32_t value) {
 
     status = XIicPs_MasterSendPolled(&iic, buffer, 5, I2C_SLAVE_DEVICE_ADDRESS);
     if (status != XST_SUCCESS) {
-        xil_printf("Error: writeReg32Bit\n\r");
         return;
     }
 
@@ -395,13 +387,11 @@ uint8_t readReg(uint8_t reg) {
 
     status = XIicPs_MasterSendPolled(&iic, buffer, 1, I2C_SLAVE_DEVICE_ADDRESS);
     if (status != XST_SUCCESS) {
-        xil_printf("Error: readReg: send: %d\n\r", status);
         return 0;
     }
 
     status = XIicPs_MasterRecvPolled(&iic, &value, 1, I2C_SLAVE_DEVICE_ADDRESS);
     if (status != XST_SUCCESS) {
-        xil_printf("Error: readReg: recv\n\r");
         return 0;
     }
 
@@ -421,13 +411,11 @@ uint16_t readReg16Bit(uint8_t reg) {
 
     status = XIicPs_MasterSendPolled(&iic, sendBuffer, 1, I2C_SLAVE_DEVICE_ADDRESS);
     if (status != XST_SUCCESS) {
-        xil_printf("Error: readReg16Bit: send\n\r");
         return 0;
     }
 
     status = XIicPs_MasterRecvPolled(&iic, recvBuffer, 2, I2C_SLAVE_DEVICE_ADDRESS);
     if (status != XST_SUCCESS) {
-        xil_printf("Error: readReg16Bit: recv\n\r");
         return 0;
     }
 
@@ -450,13 +438,11 @@ uint32_t readReg32Bit(uint8_t reg) {
 
     status = XIicPs_MasterSendPolled(&iic, sendBuffer, 1, I2C_SLAVE_DEVICE_ADDRESS);
     if (status != XST_SUCCESS) {
-        xil_printf("Error: readReg32Bit: send\n\r");
         return 0;
     }
 
     status = XIicPs_MasterRecvPolled(&iic, recvBuffer, 4, I2C_SLAVE_DEVICE_ADDRESS);
     if (status != XST_SUCCESS) {
-        xil_printf("Error: readReg32Bit: recv\n\r");
         return 0;
     }
 
@@ -483,7 +469,6 @@ void writeMulti(uint8_t reg, uint8_t const* src, uint8_t count) {
 
     status = XIicPs_MasterSendPolled(&iic, buffer, count + 1, I2C_SLAVE_DEVICE_ADDRESS);
     if (status != XST_SUCCESS) {
-        xil_printf("Error: writeMulti\n\r");
         return;
     }
 
@@ -500,13 +485,11 @@ void readMulti(uint8_t reg, uint8_t* dst, uint8_t count) {
 
     status = XIicPs_MasterSendPolled(&iic, sendBuffer, 1, I2C_SLAVE_DEVICE_ADDRESS);
     if (status != XST_SUCCESS) {
-        xil_printf("Error: readMulti: send\n\r");
         return;
     }
 
     status = XIicPs_MasterRecvPolled(&iic, dst, count, I2C_SLAVE_DEVICE_ADDRESS);
     if (status != XST_SUCCESS) {
-        xil_printf("Error: readMulti: recv\n\r");
         return;
     }
 

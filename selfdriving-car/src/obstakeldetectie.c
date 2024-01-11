@@ -12,11 +12,7 @@
 #include "sleep.h"
 #include "stdbool.h"
 #include "xil_exception.h"
-#include "xil_printf.h"
 #include "xstatus.h"
-
-#define SLOWDOWN_DISTANCE 500
-#define STOP_DISTANCE 100
 
 XStatus obstakeldetectieInit() {
     int status;
@@ -24,7 +20,6 @@ XStatus obstakeldetectieInit() {
     setTimeout(500);
     status = init(true);
     if (status != true) {
-        xil_printf("Error: init()\n\r");
         return XST_FAILURE;
     }
 
