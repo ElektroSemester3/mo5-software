@@ -80,6 +80,9 @@ int main() {
         // --- END TEMPORARY ---
 
         obstakeldetectie(&Data);
+
+        Data.speedLeft = Data.speedBase;
+        Data.speedRight = Data.speedBase;
     	lijnherkenning();
     	sturen();
         snelheidBehouden(&Data);   // Changes Speed.left and Speed.right

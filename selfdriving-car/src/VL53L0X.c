@@ -36,7 +36,7 @@ uint16_t getTimeout() { return io_timeout; }
 
 #define IIC_DEVICE_ID XPAR_PS7_I2C_1_DEVICE_ID
 #define IIC_CLOCK_SPEED 100000
-#define IIC_DELAY 10
+#define IIC_DELAY 100
 
 // The Arduino two-wire interface uses a 7-bit number for the address,
 // and sets the last bit correctly based on reads and writes
