@@ -21,17 +21,21 @@ typedef struct GlobalData
 // revolutions times 6v supply = 309.6ms
 #define TIRE_LENGTH_MM          206   // mm
 #define ENCODER_DISK_SLOTS      20    // slots
-#define MIN_PULSE_TIME          15480 // ns
-#define ENCODER_COUNT			2
+#define MIN_PULSE_TIME          24500 //15480 // ns
+enum Encoder {
+	encoder_left = 0,
+	encoder_right,
+	encoder_count
+};
 
 // --- Speed limits ---
 #define MAX_MAX_SPEED_VALUE      200  // maximum allowed speed value
 #define NORMAL_MAX_SPEED_VALUE   100  // 100% speed value
 #define MIN_SPEED_VALUE          0
-#define DEFAULT_SPEED            50   // value between MIN_SPEED_VALUE and NORMAL_MAX_SPEED_VALUE
+#define DEFAULT_SPEED            70   // value between MIN_SPEED_VALUE and NORMAL_MAX_SPEED_VALUE
 // -- Speed calculations --
-#define DISTANCE_PER_PULSE  TIRE_LENGTH_MM * 10 / ENCODER_DISK_SLOTS  	// DISTANCE_PER_PULSE / 10 = mm per pulse
-#define MAX_SPEED  TIRE_LENGTH_MM * 1000000 / ENCODER_DISK_SLOTS / MIN_PULSE_TIME // 665.37 mm/s = 2.395 km/h
+#define DISTANCE_PER_PULSE  (TIRE_LENGTH_MM * 10 / ENCODER_DISK_SLOTS)  	// DISTANCE_PER_PULSE / 10 = mm per pulse
+#define MAX_SPEED  (TIRE_LENGTH_MM * 1000000 / ENCODER_DISK_SLOTS / MIN_PULSE_TIME) // 665.37 mm/s = 2.395 km/h
 
 // --- Turn value ---
 #define DEFAULT_TURN_VALUE      128

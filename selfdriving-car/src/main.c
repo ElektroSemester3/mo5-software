@@ -61,6 +61,8 @@ int main()
     
     // Initialize the modules
     if (initButton() != XST_SUCCESS) return XST_FAILURE;
+    if (init_snelheidBehouden() != XST_SUCCESS) return XST_FAILURE;
+    if (init_motorAansturing() != XST_SUCCESS) return XST_FAILURE;
 
    
 
@@ -87,10 +89,11 @@ int main()
     	obstakeldetectie();
     	lijnherkenning();
     	sturen();
-    	snelheidBehouden();
-    	motorAansturing();
+        snelheidBehouden(&Data);   // Changes Speed.left and Speed.right
+        motorAansturing(&Data);    // Sets the speed of the motors
     }
 
     cleanup_platform();
     return 0;
 }
+
