@@ -213,15 +213,11 @@ static void onInterrupt(void* baseaddr_p) {
 	// Get the gpio input value
 	uint8_t encoderInputValue = XGpio_DiscreteRead(&encoderInput, ENCODER_INT);
 
-	// Check if the encoder has changed
+	// Get the changed bit
 	uint8_t changedBit = encoderInputValue ^ oldInput;
 
-	// Get the changed bit
-	uint8_t risingEdge = (changedBit & oldInput) & changedBit;
-
-	// Check if the changed bit has a rising edge
-	if (risingEdge != 0 && changedBit != 0) {
-		// Do something when there is arising edge
+	// Do something when there is arising edge
+	if (changedBit > 0) {
 		// xil_printf("Rising edge detected: %d\r\n", changedBit);
 
 		// Get the time

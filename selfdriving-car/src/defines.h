@@ -4,10 +4,10 @@
 
 typedef struct GlobalData
 {
-    uint8_t speedLeft;
-    uint8_t speedRight;
-    uint8_t speedBase;
-    uint8_t turnValue;
+    uint8_t speedLeft;  // speed of the left motor
+    uint8_t speedRight; // speed of the right motor
+    uint8_t speedBase;  // base speed of the car
+    uint8_t turnValue;  // turn value of the car
 } globalData;
 
 // --- Time constants ---
