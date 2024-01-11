@@ -2,6 +2,7 @@
 #define VL53L0X_h
 
 #include "stdbool.h"
+#include "stdint.h"
 
 // register addresses from API vl53l0x_device.h (ordered as listed there)
 enum regAddr {
