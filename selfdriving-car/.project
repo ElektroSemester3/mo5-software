@@ -3,7 +3,6 @@
 	<name>selfdriving-car</name>
 	<comment>Created by Vitis v2023.1</comment>
 	<projects>
-		<project>system_wrapper</project>
 	</projects>
 	<buildSpec>
 		<buildCommand>

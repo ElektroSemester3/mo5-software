@@ -11,6 +11,6 @@
 #include "xstatus.h"
 
 XStatus init_lijnherkenning();
-void lijnherkenning();
+void lijnherkenning(uint8_t Snelheid);
 
 #endif /* SRC_LIJNHERKENNING_H_ */
