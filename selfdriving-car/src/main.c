@@ -51,31 +51,65 @@ int initButton() {
 }
 // --- END TEMPORARY ---
 
+// --- Status led ---
+#define STATUS_LED_DEVICE_ID XPAR_USER_INTERFACE_RGB_LEDS_GPIO_DEVICE_ID
+
+XGpio statusGpio;
+
+XStatus init_statusLed() {
+    int status;
+    // Initialize the GPIO instance
+    status = XGpio_Initialize(&statusGpio, STATUS_LED_DEVICE_ID);
+    if (status != XST_SUCCESS) {
+        printf("Error initializing status led GPIO\r\n");
+        return XST_FAILURE;
+    }
+
+    // Set the GPIO channel direction to output
+    XGpio_SetDataDirection(&statusGpio, 1, 0x0);
+
+    // Set the status led to orange
+    XGpio_DiscreteWrite(&statusGpio, 1, 0x5);
+
+    return XST_SUCCESS;
+}
+
+
 XStatus InitializeModules(){
     // Initialize the button module
 	if (initButton() != XST_SUCCESS) {
 		xil_printf("Init button failed\r\n");
+        // Set the status led to red
+        XGpio_DiscreteWrite(&statusGpio, 1, 0x5);
 		return XST_FAILURE;
 	}
 
     // Initialize the obstakeldetectie module
     if (obstakeldetectieInit() != XST_SUCCESS) {
         xil_printf("Init obstakeldetectie failed\r\n");
+        // Set the status led to red
+        XGpio_DiscreteWrite(&statusGpio, 1, 0x1);
         return XST_FAILURE;
     }
 
     // Initialize the snelheidBehouden module
     if (init_snelheidBehouden() != XST_SUCCESS) {
         xil_printf("Init snelheidBehouden failed\r\n");
+        // Set the status led to red
+        XGpio_DiscreteWrite(&statusGpio, 1, 0x1);
         return XST_FAILURE;
     }
 
     // Initialize the motorAansturing module
     if (init_motorAansturing() != XST_SUCCESS) {
         xil_printf("Init motorAansturing failed\r\n");
+        // Set the status led to red
+        XGpio_DiscreteWrite(&statusGpio, 1, 0x1);
         return XST_FAILURE;
     }
 
+    // Set the status led to green
+    XGpio_DiscreteWrite(&statusGpio, 1, 0x4);
     return XST_SUCCESS;
 }
 
@@ -83,12 +117,21 @@ int main() {
     init_platform();
     xil_printf("_Start_\r\n");
 
+    // Initialize the status led
+    if (init_statusLed() != XST_SUCCESS) {
+        xil_printf("Init status led failed\r\n");
+        cleanup_platform();
+        return 0;
+    }
+
     // Initialize the modules
     if (InitializeModules() != XST_SUCCESS) {
         xil_printf("Failed to initialize modules\r\n");
         cleanup_platform();
         return 0;
     }
+
+    // Initialize done
     xil_printf("Modules initialized, starting main loop\r\n");
 
     while (1) {
