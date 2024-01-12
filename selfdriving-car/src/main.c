@@ -51,15 +51,45 @@ int initButton() {
 }
 // --- END TEMPORARY ---
 
+XStatus InitializeModules(){
+    // Initialize the button module
+	if (initButton() != XST_SUCCESS) {
+		xil_printf("Init button failed\r\n");
+		return XST_FAILURE;
+	}
+
+    // Initialize the obstakeldetectie module
+    if (obstakeldetectieInit() != XST_SUCCESS) {
+        xil_printf("Init obstakeldetectie failed\r\n");
+        return XST_FAILURE;
+    }
+
+    // Initialize the snelheidBehouden module
+    if (init_snelheidBehouden() != XST_SUCCESS) {
+        xil_printf("Init snelheidBehouden failed\r\n");
+        return XST_FAILURE;
+    }
+
+    // Initialize the motorAansturing module
+    if (init_motorAansturing() != XST_SUCCESS) {
+        xil_printf("Init motorAansturing failed\r\n");
+        return XST_FAILURE;
+    }
+
+    return XST_SUCCESS;
+}
+
 int main() {
     init_platform();
-    print("_Start_\r\n");
+    xil_printf("_Start_\r\n");
 
     // Initialize the modules
-    if (initButton() != XST_SUCCESS) return XST_FAILURE;
-    if (obstakeldetectieInit() != XST_SUCCESS) return XST_FAILURE;
-    if (init_snelheidBehouden() != XST_SUCCESS) return XST_FAILURE;
-    if (init_motorAansturing() != XST_SUCCESS) return XST_FAILURE;
+    if (InitializeModules() != XST_SUCCESS) {
+        xil_printf("Failed to initialize modules\r\n");
+        cleanup_platform();
+        return 0;
+    }
+    xil_printf("Modules initialized, starting main loop\r\n");
 
     while (1) {
         globalData Data;

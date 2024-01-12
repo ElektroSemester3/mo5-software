@@ -10,6 +10,9 @@ typedef struct GlobalData
     uint8_t turnValue;  // turn value of the car
 } globalData;
 
+// --- Debugging ---
+// #define DEBUG_MODE // Uncomment to enable debugging
+
 // --- Time constants ---
 #define TIME_TO_NS_DIVIDER 325 //XPAR_CPU_CORTEXA9_0_CPU_CLK_FREQ_HZ / 2000000
 #define TIME_TO_NS(i) (i / TIME_TO_NS_DIVIDER)
@@ -43,8 +46,8 @@ enum Encoder {
 #define FULL_LEFT_TURN_VALUE    0
 
 // --- Obstacle detection values ---
-#define SLOWDOWN_DISTANCE 500
-#define STOP_DISTANCE 80
+#define SLOWDOWN_DISTANCE 460
+#define STOP_DISTANCE 70
 
 // --- Loop times ---
 #define SPEED_CALC_LOOP_TIME  1000  // ns

@@ -15,9 +15,6 @@
 #include "xtime_l.h"
 #include "PID.h"
 
-// --- Constants ---
-#define PRINT_INFO
-
 // --- Interrupt controller constants ---
 #define INTC_DEVICE_ID 			XPAR_PS7_SCUGIC_0_DEVICE_ID
 #define ENCODER_DEVICE_ID		XPAR_SPEED_SENSORS_AXI_GPIO_0_DEVICE_ID
@@ -77,7 +74,7 @@ XStatus init_snelheidBehouden() {
 	}
 
 	// Initialize the PID controler
-	#ifdef PRINT_INFO
+	#ifdef DEBUG_MODE
 		xil_printf("P: %u, I: %u, D: %u \r\n", Kp_VALUE, Ki_VALUE, Kd_VALUE);
 	#endif
 	for (uint8_t i = 0; i < encoder_count; i++){
@@ -107,7 +104,7 @@ void snelheidBehouden(globalData* Data) {	// Adjust the speed
 	if (time_now - time_old > NS_TO_TIME(SPEED_CALC_LOOP_TIME)){
 		time_old = time_now;
 
-		#ifdef PRINT_INFO
+		#ifdef DEBUG_MODE
 			bool print = false;
 		#endif
 
@@ -144,12 +141,12 @@ void snelheidBehouden(globalData* Data) {	// Adjust the speed
 			// calculate the new speed
 			speedValue[i] = pid_calculate(&PID[i], error, speed_setpoint);
 			
-			#ifdef PRINT_INFO
+			#ifdef DEBUG_MODE
 				xil_printf("Encoder:  %d \t-- Error: %d \t-- Speed value: %d \t--\t Time: %d \t | \t",encoderSpeed, error, speedValue[i], (uint64_t)TIME_TO_NS(time_now));
 				print = true;
 			#endif
 		}
-		#ifdef PRINT_INFO
+		#ifdef DEBUG_MODE
 			if (print) xil_printf("\r\n");
 		#endif
 	}
