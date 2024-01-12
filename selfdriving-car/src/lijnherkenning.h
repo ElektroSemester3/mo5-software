@@ -9,8 +9,9 @@
 #define SRC_LIJNHERKENNING_H_
 
 #include "xstatus.h"
+#include "defines.h"
 
 XStatus init_lijnherkenning();
-void lijnherkenning(uint8_t Snelheid);
+void lijnherkenning(globalData* Data);
 
 #endif /* SRC_LIJNHERKENNING_H_ */

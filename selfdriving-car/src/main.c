@@ -64,6 +64,12 @@ XStatus InitializeModules(){
         return XST_FAILURE;
     }
 
+    // Initialize the lijnherkenning module
+    if (init_lijnherkenning() != XST_SUCCESS) {
+        xil_printf("Init lijnherkenning failed\r\n");
+        return XST_FAILURE;
+    }
+
     // Initialize the snelheidBehouden module
     if (init_snelheidBehouden() != XST_SUCCESS) {
         xil_printf("Init snelheidBehouden failed\r\n");
@@ -84,7 +90,6 @@ int main() {
     xil_printf("_Start_\r\n");
 
     // Initialize the modules
-    if (init_lijnherkenning() != XST_SUCCESS) return XST_FAILURE;
     if (InitializeModules() != XST_SUCCESS) {
         xil_printf("Failed to initialize modules\r\n");
         cleanup_platform();
@@ -114,7 +119,7 @@ int main() {
 
         Data.speedLeft = Data.speedBase;
         Data.speedRight = Data.speedBase;
-    	lijnherkenning();
+    	lijnherkenning(&Data);
     	sturen();
         snelheidBehouden(&Data);   // Changes Speed.left and Speed.right
         motorAansturing(&Data);    // Sets the speed of the motors

@@ -17,7 +17,7 @@ XStatus init_lijnherkenning(){
 	return XST_SUCCESS;
 }
 
-void lijnherkenning(uint8_t Snelheid) { // uint8_t Snelheid is de snelheid die ik binnen krijg.
+void lijnherkenning(globalData* Data) { // uint8_t Snelheid is de snelheid die ik binnen krijg.
 	/// De pinnen van de Sensoren
 		XGpio Inputs;
 		XGpio_Initialize(&Inputs,INPUT_DEVICE_ID);
@@ -174,11 +174,8 @@ void lijnherkenning(uint8_t Snelheid) { // uint8_t Snelheid is de snelheid die i
 			// SnelheidBegrensing maken
 			// Input van de snelheid mag niet hoger worden dan SnelheidB
 
-			if(Snelheid > SnelheidB){
-				snelheid = SnelheidB;
-			}
-			else {
-				Snelheid = Snelheid;
+			if(Data->speedBase > SnelheidB){
+				Data->speedBase = SnelheidB;
 			}
 
 }
