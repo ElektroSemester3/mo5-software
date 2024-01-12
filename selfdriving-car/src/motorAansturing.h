@@ -8,6 +8,11 @@
 #ifndef SRC_MOTORAANSTURING_H_
 #define SRC_MOTORAANSTURING_H_
 
-void motorAansturing();
+#include <stdint.h>
+#include "xstatus.h"
+#include "defines.h"
+
+XStatus init_motorAansturing();
+void motorAansturing(globalData* Data);
 
 #endif /* SRC_MOTORAANSTURING_H_ */
