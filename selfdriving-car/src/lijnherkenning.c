@@ -8,24 +8,29 @@
 #include "lijnherkenning.h"
 #include "xstatus.h"
 #include "xgpio.h"
+#include "sleep.h"
 #define INPUT_DEVICE_ID XPAR_LIJN_HERKENNING_AXI_GPIO_0_DEVICE_ID
+
+XGpio Inputs;
 
 XStatus init_lijnherkenning() {
 	// run once on startup
 	xil_printf("Lijnherkenning start\r\n");
 
+	if (XGpio_Initialize(&Inputs, INPUT_DEVICE_ID) != XST_SUCCESS) {
+		return XST_FAILURE;
+	}
+	//1 kanaal van blok in vivado, 0xFF is 8bits( ik gebruik er 6)
+	XGpio_SetDataDirection(&Inputs, 1, 0xFF);
+
 	return XST_SUCCESS;
 }
 
 void lijnherkenning(globalData* Data) { // uint8_t Snelheid is de snelheid die ik binnen krijg.
-	/// De pinnen van de Sensoren
-	XGpio Inputs;
-	XGpio_Initialize(&Inputs, INPUT_DEVICE_ID);
-	//1 kanaal van blok in vivado, 0xFF is 8bits( ik gebruik er 6)
-	XGpio_SetDataDirection(&Inputs, 1, 0xFF);
 	// uint8_t is 8 bits
 	//inputs uitlezen, 1 is kanaal 1
 	uint8_t Waarde = XGpio_DiscreteRead(&Inputs, 1);
+	xil_printf("Waarde: %d\n\r", Waarde);
 
 	/// welke 0 en 1 wat betekend.
 	/// ik krijg een 6 bits signaal binnen.
@@ -46,38 +51,40 @@ void lijnherkenning(globalData* Data) { // uint8_t Snelheid is de snelheid die i
 	int AM = Waarde & (1 << 4);
 	int AR = Waarde & (1 << 5);
 
+	xil_printf("VL: %d\n\r", VL);
+
 	// welke case
 	int HuidigeStaat = 0;
 
 	// bij welke sytuatie welke HuidigeStaat hoort.
-	if (VM == 1 && AL == 1) {
+	if (VM == 0 && AL == 0) {
 		HuidigeStaat = 0;
-	} else if (VM == 1 && AM == 1) {
+	} else if (VM == 0 && AM == 0) {
 		HuidigeStaat = 1;
 		oudePositie = 1; //Pozitie is RechtM
-	} else if (VM == 1 && AR == 1) {
+	} else if (VM == 0 && AR == 0) {
 		HuidigeStaat = 2;
-	} else if (VM == 1) {
+	} else if (VM == 0) {
 		HuidigeStaat = 3;
-	} else if (VL == 1 && AL == 1) {
+	} else if (VL == 0 && AL == 0) {
 		HuidigeStaat = 4;
-	} else if (VL == 1 && AM == 1) {
+	} else if (VL == 0 && AM == 0) {
 		HuidigeStaat = 5;
-	} else if (VL == 1 && AR == 1) {
+	} else if (VL == 0 && AR == 0) {
 		HuidigeStaat = 6;
-	} else if (VL == 1) {
+	} else if (VL == 0) {
 		HuidigeStaat = 7;
-	} else if (VR == 1 && AL == 1) {
+	} else if (VR == 0 && AL == 0) {
 		HuidigeStaat = 8;
-	} else if (VR == 1 && AM == 1) {
+	} else if (VR == 0 && AM == 0) {
 		HuidigeStaat = 9;
-	} else if (VR == 1 && AR == 1) {
+	} else if (VR == 0 && AR == 0) {
 		HuidigeStaat = 10;
-	} else if (VR == 1) {
+	} else if (VR == 0) {
 		HuidigeStaat = 11;
 	}
 	//als er geen sensoren gezien worden, maar de vorige state was recht dan mag je sneler dan 50% van de max snelheid
-	else if (VL == 0 && VR == 0 && VR == 0 && AL == 0 && AM == 0 && AR == 0
+	else if (VL == 62 && VM == 61 && VR == 59 && AL == 55 && AM == 47 && AR == 31
 			&& oudePositie == 1) {
 		HuidigeStaat = 12;
 	} else {
@@ -165,6 +172,7 @@ void lijnherkenning(globalData* Data) { // uint8_t Snelheid is de snelheid die i
 		SnelheidB = NORMAL_MAX_SPEED_VALUE / 2;
 		break;
 	}
+	xil_printf("HuidigeStaat: %d\r\n",HuidigeStaat);
 
 	// SnelheidBegrenzing(snelheidB)definieren
 	// SnelheidBegrensing maken
@@ -173,6 +181,5 @@ void lijnherkenning(globalData* Data) { // uint8_t Snelheid is de snelheid die i
 	if (Data->speedBase > SnelheidB) {
 		Data->speedBase = SnelheidB;
 	}
-
 }
 

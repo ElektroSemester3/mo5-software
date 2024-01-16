@@ -58,11 +58,11 @@ XStatus InitializeModules(){
 		return XST_FAILURE;
 	}
 
-    // Initialize the obstakeldetectie module
-    if (obstakeldetectieInit() != XST_SUCCESS) {
-        xil_printf("Init obstakeldetectie failed\r\n");
-        return XST_FAILURE;
-    }
+//    // Initialize the obstakeldetectie module
+//    if (obstakeldetectieInit() != XST_SUCCESS) {
+//        xil_printf("Init obstakeldetectie failed\r\n");
+//        return XST_FAILURE;
+//    }
 
     // Initialize the lijnherkenning module
     if (init_lijnherkenning() != XST_SUCCESS) {
@@ -115,7 +115,7 @@ int main() {
         }
         // --- END TEMPORARY ---
 
-        obstakeldetectie(&Data);
+        //obstakeldetectie(&Data);
 
         Data.speedLeft = Data.speedBase;
         Data.speedRight = Data.speedBase;
