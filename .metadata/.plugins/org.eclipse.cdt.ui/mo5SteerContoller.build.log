@@ -1,0 +1,30 @@
+15:59:31 **** Build of configuration Debug for project mo5SteerContoller ****
+make all 
+make --no-print-directory pre-build
+a9-linaro-pre-build-step
+' '
+make --no-print-directory main-build
+'Building file: ../src/helloworld.c'
+'Invoking: ARM v7 gcc compiler'
+arm-none-eabi-gcc -Wall -O0 -g3 -c -fmessage-length=0 -MT"src/helloworld.o" -mcpu=cortex-a9 -mfpu=vfpv3 -mfloat-abi=hard -IC:/Users/lscho/OneDrive/Documents/GitHub/mo5-software/custom_wrapper/export/custom_wrapper/sw/custom_wrapper/standalone_ps7_cortexa9_0/bspinclude/include -MMD -MP -MF"src/helloworld.d" -MT"src/helloworld.o" -o "src/helloworld.o" "../src/helloworld.c"
+'Finished building: ../src/helloworld.c'
+' '
+'Building file: ../src/platform.c'
+'Invoking: ARM v7 gcc compiler'
+arm-none-eabi-gcc -Wall -O0 -g3 -c -fmessage-length=0 -MT"src/platform.o" -mcpu=cortex-a9 -mfpu=vfpv3 -mfloat-abi=hard -IC:/Users/lscho/OneDrive/Documents/GitHub/mo5-software/custom_wrapper/export/custom_wrapper/sw/custom_wrapper/standalone_ps7_cortexa9_0/bspinclude/include -MMD -MP -MF"src/platform.d" -MT"src/platform.o" -o "src/platform.o" "../src/platform.c"
+'Finished building: ../src/platform.c'
+' '
+'Building target: mo5SteerContoller.elf'
+'Invoking: ARM v7 gcc linker'
+arm-none-eabi-gcc -mcpu=cortex-a9 -mfpu=vfpv3 -mfloat-abi=hard -Wl,-build-id=none -specs=Xilinx.spec -Wl,-T -Wl,../src/lscript.ld -LC:/Users/lscho/OneDrive/Documents/GitHub/mo5-software/custom_wrapper/export/custom_wrapper/sw/custom_wrapper/standalone_ps7_cortexa9_0/bsplib/lib -o "mo5SteerContoller.elf"  ./src/helloworld.o ./src/platform.o   -Wl,--start-group,-lxil,-lgcc,-lc,--end-group
+'Finished building target: mo5SteerContoller.elf'
+' '
+'Invoking: ARM v7 Print Size'
+arm-none-eabi-size mo5SteerContoller.elf  |tee "mo5SteerContoller.elf.size"
+   text	   data	    bss	    dec	    hex	filename
+  19100	   1144	  22568	  42812	   a73c	mo5SteerContoller.elf
+'Finished building: mo5SteerContoller.elf.size'
+' '
+
+15:59:33 Build Finished (took 1s.203ms)
+

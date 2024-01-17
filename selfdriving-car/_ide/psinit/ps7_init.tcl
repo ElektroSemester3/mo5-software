@@ -28,7 +28,7 @@ proc ps7_pll_init_data_3_0 {} {
 proc ps7_clock_init_data_3_0 {} {
     mwr -force 0XF8000008 0x0000DF0D
     mask_write 0XF8000128 0x03F03F01 0x00203401
-    mask_write 0XF800014C 0x00003F31 0x00000801
+    mask_write 0XF800014C 0x00003F31 0x00000C01
     mask_write 0XF8000154 0x00003F33 0x00001001
     mask_write 0XF8000168 0x00003F31 0x00000801
     mask_write 0XF8000170 0x03F03F30 0x00400400
@@ -248,7 +248,7 @@ proc ps7_pll_init_data_2_0 {} {
 proc ps7_clock_init_data_2_0 {} {
     mwr -force 0XF8000008 0x0000DF0D
     mask_write 0XF8000128 0x03F03F01 0x00203401
-    mask_write 0XF800014C 0x00003F31 0x00000801
+    mask_write 0XF800014C 0x00003F31 0x00000C01
     mask_write 0XF8000154 0x00003F33 0x00001001
     mask_write 0XF8000168 0x00003F31 0x00000801
     mask_write 0XF8000170 0x03F03F30 0x00400400
@@ -469,7 +469,7 @@ proc ps7_pll_init_data_1_0 {} {
 proc ps7_clock_init_data_1_0 {} {
     mwr -force 0XF8000008 0x0000DF0D
     mask_write 0XF8000128 0x03F03F01 0x00203401
-    mask_write 0XF800014C 0x00003F31 0x00000801
+    mask_write 0XF800014C 0x00003F31 0x00000C01
     mask_write 0XF8000154 0x00003F33 0x00001001
     mask_write 0XF8000168 0x00003F31 0x00000801
     mask_write 0XF8000170 0x03F03F30 0x00400400

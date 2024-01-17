@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="ASCII"?>
+<sdkproject:SdkProject xmi:version="2.0" xmlns:xmi="http://www.omg.org/XMI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:sdkproject="http://www.xilinx.com/sdkproject" name="mo5SteerContoller" location="C:/Users/lscho/OneDrive/Documents/GitHub/mo5-software/mo5SteerContoller" platform="C:/Users/lscho/OneDrive/Documents/GitHub/mo5-software/custom_wrapper/export/custom_wrapper/custom_wrapper.xpfm" platformUID="Elektroclowns:pynq-z2:mo5-software-platform:1.1(custom)" systemProject="mo5SteerContoller_system" sysConfig="custom_wrapper" runtime="cpp" cpu="standalone_ps7_cortexa9_0" cpuInstance="ps7_cortexa9_0" os="standalone" mssSignature="0d5f1e10c6d61fb11bf304a32a7bd8fb">
+  <configuration name="Debug" id="xilinx.gnu.armv7.exe.debug.307937674" dirty="true">
+    <configBuildOptions xsi:type="sdkproject:SdkOptions"/>
+    <lastBuildOptions xsi:type="sdkproject:SdkOptions"/>
+  </configuration>
+  <configuration name="Release" id="xilinx.gnu.armv7.exe.release.2136220743" dirty="true">
+    <configBuildOptions xsi:type="sdkproject:SdkOptions"/>
+  </configuration>
+  <template appTemplateName="hello_world"/>
+</sdkproject:SdkProject>

@@ -1,0 +1,6 @@
+15:59:33 **** Build of configuration Emulation-SW for project mo5SteerContoller_system ****
+make all 
+Package not supported, if the system project is in Emulation Target, and only Baremetal Or Embedded Linux Applications present
+
+15:59:33 Build Finished (took 136ms)
+
