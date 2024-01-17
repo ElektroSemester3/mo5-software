@@ -154,10 +154,10 @@ int main() {
 
         obstakeldetectie(&Data);
 
-        Data.speedLeft = Data.speedBase;
-        Data.speedRight = Data.speedBase;
+//        Data.speedLeft = Data.speedBase;
+//        Data.speedRight = Data.speedBase;
     	lijnherkenning();
-    	sturen();
+    	sturen(&Data);
         snelheidBehouden(&Data);   // Changes Speed.left and Speed.right
         motorAansturing(&Data);    // Sets the speed of the motors
     }

@@ -8,6 +8,9 @@
 #ifndef SRC_STUREN_H_
 #define SRC_STUREN_H_
 
-void sturen();
+#include "xstatus.h"
+#include "defines.h"
+
+void sturen(globalData *Data);
 
 #endif /* SRC_STUREN_H_ */
