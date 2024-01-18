@@ -145,19 +145,20 @@ int main() {
         globalData Data;
 
         // --- TEMPORARY ---
+        // When the switch is on, the car will drive at DEFAULT_SPEED
         uint8_t buttons = XGpio_DiscreteRead(&buttonGpio, SWITCH_CHANNEL);
         if (buttons & SWITCH_MASK) {
-            Data.speedLeft = DEFAULT_SPEED;
+            Data.speedBase = DEFAULT_SPEED;
         } else {
-            Data.speedLeft = 0;
+            Data.speedBase = 0;
         }
         // --- END TEMPORARY ---
 
-        obstakeldetectie(&Data);
-    	lijnherkenning(&Data);
-    	sturen(&Data);
-        snelheidBehouden(&Data);   // Changes Speed.left and Speed.right
-        motorAansturing(&Data);    // Sets the speed of the motors
+        obstakeldetectie(&Data);    // Calculates the speed correction
+    	lijnherkenning(&Data);      // Calculates the steering correction
+    	sturen(&Data);              // Applies the steering correction 
+        snelheidBehouden(&Data);    // Preforms a constant speed
+        motorAansturing(&Data);     // Sets the speed of the motors
     }
 
     cleanup_platform();
