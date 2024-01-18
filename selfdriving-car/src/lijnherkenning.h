@@ -8,6 +8,10 @@
 #ifndef SRC_LIJNHERKENNING_H_
 #define SRC_LIJNHERKENNING_H_
 
-void lijnherkenning();
+#include "xstatus.h"
+#include "defines.h"
+
+XStatus init_lijnherkenning();
+void lijnherkenning(globalData* Data);
 
 #endif /* SRC_LIJNHERKENNING_H_ */

@@ -89,6 +89,13 @@ XStatus InitializeModules(){
         xil_printf("Init obstakeldetectie failed\r\n");
         // Set the status led to red
         XGpio_DiscreteWrite(&statusGpio, 1, 0x1);
+    }
+
+    // Initialize the lijnherkenning module
+    if (init_lijnherkenning() != XST_SUCCESS) {
+        xil_printf("Init lijnherkenning failed\r\n");
+        // Set the status led to red
+        XGpio_DiscreteWrite(&statusGpio, 1, 0x5);
         return XST_FAILURE;
     }
 
@@ -156,7 +163,7 @@ int main() {
 
 //        Data.speedLeft = Data.speedBase;
 //        Data.speedRight = Data.speedBase;
-    	lijnherkenning();
+    	lijnherkenning(&Data);
     	sturen(&Data);
         snelheidBehouden(&Data);   // Changes Speed.left and Speed.right
         motorAansturing(&Data);    // Sets the speed of the motors
