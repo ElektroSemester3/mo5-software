@@ -148,21 +148,12 @@ int main() {
         uint8_t buttons = XGpio_DiscreteRead(&buttonGpio, SWITCH_CHANNEL);
         if (buttons & SWITCH_MASK) {
             Data.speedLeft = DEFAULT_SPEED;
-            Data.speedRight = DEFAULT_SPEED;
-            Data.speedBase = DEFAULT_SPEED;
-            Data.turnValue = FULL_RIGHT_TURN_VALUE;
         } else {
             Data.speedLeft = 0;
-            Data.speedRight = 0;
-            Data.speedBase = 0;
-            Data.turnValue = DEFAULT_TURN_VALUE;
         }
         // --- END TEMPORARY ---
 
         obstakeldetectie(&Data);
-
-//        Data.speedLeft = Data.speedBase;
-//        Data.speedRight = Data.speedBase;
     	lijnherkenning(&Data);
     	sturen(&Data);
         snelheidBehouden(&Data);   // Changes Speed.left and Speed.right
