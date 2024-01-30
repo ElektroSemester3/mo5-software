@@ -52,35 +52,40 @@ void lijnherkenning(globalData* Data) { // uint8_t Snelheid is de snelheid die i
 	int AR = Waarde & (1 << 5);
 
 	xil_printf("VL: %d\n\r", VL);
+	xil_printf("VM: %d\n\r", VM);
+	xil_printf("VR: %d\n\r", VR);
+	xil_printf("AL: %d\n\r", AL);
+	xil_printf("AM: %d\n\r", AM);
+	xil_printf("AR: %d\n\r", AR);
 
 	// welke case
 	int HuidigeStaat = 0;
 
 	// bij welke sytuatie welke HuidigeStaat hoort.
-	if (VM == 0 && AL == 0) {
+	if (VM == 2 && AL == 8) {
 		HuidigeStaat = 0;
-	} else if (VM == 0 && AM == 0) {
+	} else if (VM == 2 && AM == 16) {
 		HuidigeStaat = 1;
 		oudePositie = 1; //Pozitie is RechtM
-	} else if (VM == 0 && AR == 0) {
+	} else if (VM == 2 && AR == 1) {
 		HuidigeStaat = 2;
-	} else if (VM == 0) {
+	} else if (VM == 2) {
 		HuidigeStaat = 3;
-	} else if (VL == 0 && AL == 0) {
+	} else if (VL == 1 && AL == 8) {
 		HuidigeStaat = 4;
-	} else if (VL == 0 && AM == 0) {
+	} else if (VL == 1 && AM == 16) {
 		HuidigeStaat = 5;
-	} else if (VL == 0 && AR == 0) {
+	} else if (VL == 1 && AR == 1) {
 		HuidigeStaat = 6;
-	} else if (VL == 0) {
+	} else if (VL == 1) {
 		HuidigeStaat = 7;
-	} else if (VR == 0 && AL == 0) {
+	} else if (VR == 4 && AL == 8) {
 		HuidigeStaat = 8;
-	} else if (VR == 0 && AM == 0) {
+	} else if (VR == 4 && AM == 16) {
 		HuidigeStaat = 9;
-	} else if (VR == 0 && AR == 0) {
+	} else if (VR == 4 && AR == 1) {
 		HuidigeStaat = 10;
-	} else if (VR == 0) {
+	} else if (VR == 4) {
 		HuidigeStaat = 11;
 	}
 	//als er geen sensoren gezien worden, maar de vorige state was recht dan mag je sneler dan 50% van de max snelheid
@@ -152,7 +157,7 @@ void lijnherkenning(globalData* Data) { // uint8_t Snelheid is de snelheid die i
 		SnelheidB = NORMAL_MAX_SPEED_VALUE * 0.70;
 		break;
 	case 9: //VRAM = BeScRechts
-		Data->turnValue = BeScRechts;
+		Data->turnValue = BeScLinks;
 		SnelheidB = NORMAL_MAX_SPEED_VALUE * 0.80;
 		break;
 	case 10: //VRAR = RechtL
@@ -173,6 +178,9 @@ void lijnherkenning(globalData* Data) { // uint8_t Snelheid is de snelheid die i
 		break;
 	}
 	xil_printf("HuidigeStaat: %d\r\n",HuidigeStaat);
+	xil_printf("Data->turnValue: %d\r\n",Data->turnValue);
+	xil_printf("SnelheidB: %d\r\n",SnelheidB);
+
 
 	// SnelheidBegrenzing(snelheidB)definieren
 	// SnelheidBegrensing maken
